@@ -75,6 +75,8 @@ class Scheduler:
             num_cpu_blocks=self.cache_config.num_cpu_blocks,
         )
 
+        self.freed_seq_ids: List[int] = []
+
         # TODO(zhuohan): Use deque instead of list for better performance.
         # Sequence groups in the WAITING state.
         self.waiting: List[SequenceGroup] = []
@@ -289,6 +291,7 @@ class Scheduler:
         self.block_manager.fork(parent_seq, child_seq)
 
     def free_seq(self, seq: Sequence) -> None:
+        self.freed_seq_ids.append(seq.seq_id)
         self.block_manager.free(seq)
 
     def free_finished_seq_groups(self) -> None:

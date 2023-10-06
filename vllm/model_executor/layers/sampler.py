@@ -61,6 +61,8 @@ class Sampler(nn.Module):
         logits = _apply_penalties(logits, output_tokens, presence_penalties,
                                   frequency_penalties, self.vocab_size)
 
+        SamplingParams.apply_dynamic_logit_bias(logits)
+
         # Apply temperature scaling.
         temperatures = _get_temperatures(input_metadata)
         assert len(temperatures) == logits.shape[0]

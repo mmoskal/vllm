@@ -295,6 +295,8 @@ class LLMEngine:
     ) -> Tuple[List[SequenceGroupMetadata], SchedulerOutputs,
                Optional[List[RequestOutput]]]:
         seq_group_metadata_list, scheduler_outputs = self.scheduler.schedule()
+        SamplingParams.initiate_step(self.scheduler.freed_seq_ids, seq_group_metadata_list, scheduler_outputs)
+        self.scheduler.freed_seq_ids = []
         if scheduler_outputs.is_empty():
             return seq_group_metadata_list, scheduler_outputs, [
                 RequestOutput.from_seq_group(seq_group)

@@ -173,3 +173,11 @@ class SamplingParams:
                 f"ignore_eos={self.ignore_eos}, "
                 f"max_tokens={self.max_tokens}, "
                 f"logprobs={self.logprobs})")
+    
+    @staticmethod
+    def apply_dynamic_logit_bias(logits):
+        pass
+
+    @staticmethod
+    def initiate_step(freed_seq_ids, seq_group_metadata_list, scheduler_outputs):
+        pass
