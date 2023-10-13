@@ -20,6 +20,7 @@ class CompletionOutput:
     def __init__(
         self,
         index: int,
+        seq_id: int,
         text: str,
         token_ids: List[int],
         cumulative_logprob: float,
@@ -27,6 +28,7 @@ class CompletionOutput:
         finish_reason: Optional[str] = None,
     ) -> None:
         self.index = index
+        self.seq_id = seq_id
         self.text = text
         self.token_ids = token_ids
         self.cumulative_logprob = cumulative_logprob
@@ -93,7 +95,7 @@ class RequestOutput:
                 # logprobs are not requested.
                 logprobs = {}
             finshed_reason = SequenceStatus.get_finished_reason(seq.status)
-            output = CompletionOutput(seqs.index(seq), seq.output_text,
+            output = CompletionOutput(seqs.index(seq), seq.seq_id, seq.output_text,
                                       seq.get_output_token_ids(),
                                       seq.get_cumulative_logprob(), logprobs,
                                       finshed_reason)
