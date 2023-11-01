@@ -81,6 +81,7 @@ class BlockSpaceManager:
     def can_allocate(self, seq_group: SequenceGroup) -> bool:
         # FIXME(woosuk): Here we assume that all sequences in the group share
         # the same prompt. This may not be true for preempted sequences.
+        assert seq_group.num_seqs() == 1 # MM: seems to be only used this way
         seq = seq_group.get_seqs()[0]
         num_required_blocks = len(seq.logical_token_blocks)
         num_free_gpu_blocks = self.gpu_allocator.get_num_free_blocks()

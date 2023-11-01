@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import torch
 from xformers.ops import AttentionBias
@@ -25,7 +25,9 @@ class InputMetadata:
         seq_groups: List[Tuple[List[int], SamplingParams]],
         seq_data: Dict[int, SequenceData],
         prompt_lens: List[int],
+        kv_lens: List[int],
         slot_mapping: torch.Tensor,
+        gather_slot_mapping: Optional[torch.Tensor],
         context_lens: torch.Tensor,
         max_context_len: int,
         block_tables: torch.Tensor,
@@ -33,7 +35,9 @@ class InputMetadata:
         self.seq_groups = seq_groups
         self.seq_data = seq_data
         self.prompt_lens = prompt_lens
+        self.kv_lens = kv_lens
         self.slot_mapping = slot_mapping
+        self.gather_slot_mapping = gather_slot_mapping
         self.context_lens = context_lens
         self.max_context_len = max_context_len
         self.block_tables = block_tables

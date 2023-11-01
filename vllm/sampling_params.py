@@ -175,6 +175,10 @@ class SamplingParams:
                 f"logprobs={self.logprobs})")
     
     @staticmethod
+    def append_ff_tokens(seq_group):
+        pass
+
+    @staticmethod
     def apply_dynamic_logit_bias(logits):
         pass
 

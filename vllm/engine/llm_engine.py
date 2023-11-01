@@ -361,6 +361,7 @@ class LLMEngine:
             parent_child_dict[sample.parent_seq_id].append(sample)
         # List of (child, parent)
         child_seqs: List[Tuple[Sequence, Sequence]] = []
+        SamplingParams.append_ff_tokens(seq_group)
 
         # Process the child samples for each parent sequence
         for parent in parent_seqs:
@@ -389,7 +390,9 @@ class LLMEngine:
                                    last_child_sample.logprobs)
             child_seqs.append((parent, parent))
 
-        for seq, _ in child_seqs:
+        for seq, parent in child_seqs:
+            if parent.pending_ff_tokens:
+                seq.pending_ff_tokens = parent.pending_ff_tokens.copy()
             self._decode_sequence(seq)
             self._check_stop(seq, seq_group.sampling_params)
 

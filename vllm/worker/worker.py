@@ -102,6 +102,7 @@ class Worker:
 
         input_tokens, input_positions, input_metadata = self._prepare_inputs(
             seqs)
+        print("INP", input_tokens.shape, input_positions.shape, input_metadata)
 
         # Execute the model.
         num_layers = self.model_config.get_num_layers(self.parallel_config)
@@ -149,9 +150,12 @@ class Worker:
         input_tokens: List[int] = []
         input_positions: List[int] = []
         slot_mapping: List[int] = []
+        gather_slot_mapping: List[int] = []
+        any_ff = False
 
         # Add prompt tokens.
         prompt_lens: List[int] = []
+        kv_lens: List[int] = []
         for seq_group_metadata in seq_group_metadata_list:
             if not seq_group_metadata.is_prompt:
                 continue
@@ -160,32 +164,47 @@ class Worker:
             sampling_params = seq_group_metadata.sampling_params
             seq_groups.append((seq_ids, sampling_params))
 
-            # Use any sequence in the group.
-            seq_id = seq_ids[0]
+            for seq_id in seq_ids:
+                seq_data = seq_group_metadata.seq_data[seq_id]
+                if seq_data.num_pending_ff_tokens == 0 and seq_group_metadata.is_ff:
+                    continue
+                prompt_tokens = seq_data.get_token_ids()
+                pref_len = 0
+                if seq_data.num_pending_ff_tokens > 0:
+                    any_ff = True
+                    pref_len = len(prompt_tokens) - seq_data.num_pending_ff_tokens 
+                    input_positions.extend(range(pref_len, len(prompt_tokens)))
+                    prompt_tokens = prompt_tokens[pref_len:]
+                else:
+                    # NOTE(woosuk): Here we assume that the first token in the prompt
+                    # is always the first token in the sequence.
+                    input_positions.extend(range(len(prompt_tokens)))
+                prompt_len = len(prompt_tokens)
+                prompt_lens.append(prompt_len)
+                kv_lens.append(prompt_len + pref_len)
 
-            seq_data = seq_group_metadata.seq_data[seq_id]
-            prompt_tokens = seq_data.get_token_ids()
-            prompt_len = len(prompt_tokens)
-            prompt_lens.append(prompt_len)
+                input_tokens.extend(prompt_tokens)
 
-            input_tokens.extend(prompt_tokens)
-            # NOTE(woosuk): Here we assume that the first token in the prompt
-            # is always the first token in the sequence.
-            input_positions.extend(range(len(prompt_tokens)))
+                if seq_group_metadata.block_tables is None:
+                    # During memory profiling, the block tables are not initialized
+                    # yet. In this case, we just use a dummy slot mapping.
+                    slot_mapping.extend([0] * prompt_len)
+                    continue
 
-            if seq_group_metadata.block_tables is None:
-                # During memory profiling, the block tables are not initialized
-                # yet. In this case, we just use a dummy slot mapping.
-                slot_mapping.extend([0] * prompt_len)
-                continue
+                # Compute the slot mapping.
+                block_table = seq_group_metadata.block_tables[seq_id]
+                for i in range(pref_len + prompt_len):
+                    block_number = block_table[i // self.block_size]
+                    block_offset = i % self.block_size
+                    slot = block_number * self.block_size + block_offset
+                    gather_slot_mapping.append(slot)
+                    if i >= pref_len:
+                        slot_mapping.append(slot)
+                
+                # if these are not ff tokens, then we only do the first one
+                if not seq_group_metadata.is_ff:
+                    break
 
-            # Compute the slot mapping.
-            block_table = seq_group_metadata.block_tables[seq_id]
-            for i in range(prompt_len):
-                block_number = block_table[i // self.block_size]
-                block_offset = i % self.block_size
-                slot = block_number * self.block_size + block_offset
-                slot_mapping.append(slot)
 
         # Add generation tokens.
         max_context_len = 0
@@ -231,6 +250,9 @@ class Worker:
         tokens_tensor = torch.cuda.LongTensor(input_tokens)
         positions_tensor = torch.cuda.LongTensor(input_positions)
         slot_mapping_tensor = torch.cuda.IntTensor(slot_mapping)
+        gather_slot_mapping_tensor = None
+        if any_ff:
+            gather_slot_mapping_tensor = torch.cuda.IntTensor(gather_slot_mapping)
         context_lens_tensor = torch.cuda.IntTensor(context_lens)
         padded_block_tables = [
             _pad_to_max(block_table, max_num_blocks_per_seq)
@@ -238,15 +260,17 @@ class Worker:
         ]
         block_tables_tensor = torch.cuda.IntTensor(padded_block_tables)
 
-        seq_data: Dict[int, SequenceData] = {}
+        seq_datas: Dict[int, SequenceData] = {}
         for seq_group_metadata in seq_group_metadata_list:
-            seq_data.update(seq_group_metadata.seq_data)
+            seq_datas.update(seq_group_metadata.seq_data)
 
         input_metadata = InputMetadata(
             seq_groups=seq_groups,
-            seq_data=seq_data,
+            seq_data=seq_datas,
             prompt_lens=prompt_lens,
+            kv_lens=kv_lens,
             slot_mapping=slot_mapping_tensor,
+            gather_slot_mapping=gather_slot_mapping_tensor,
             context_lens=context_lens_tensor,
             max_context_len=max_context_len,
             block_tables=block_tables_tensor,

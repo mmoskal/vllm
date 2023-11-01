@@ -61,6 +61,7 @@ class SequenceData:
         self.prompt_token_ids = prompt_token_ids
         self.output_token_ids: List[int] = []
         self.cumulative_logprob = 0.0
+        self.num_pending_ff_tokens = 0
 
     def append_token_id(self, token_id: int, logprob: float) -> None:
         self.output_token_ids.append(token_id)
@@ -126,6 +127,9 @@ class Sequence:
         self.read_offset = 0
         # Input + output tokens
         self.tokens: Optional[List[str]] = None
+
+        # tokens to be appended in next fast-forward operation
+        self.pending_ff_tokens: List[int] = []
 
     def _append_logical_block(self) -> None:
         block = LogicalTokenBlock(
@@ -314,9 +318,11 @@ class SequenceGroupMetadata:
         seq_data: Dict[int, SequenceData],
         sampling_params: SamplingParams,
         block_tables: Dict[int, List[int]],
+        is_ff: bool = False,
     ) -> None:
         self.request_id = request_id
         self.is_prompt = is_prompt
+        self.is_ff = is_ff
         self.seq_data = seq_data
         self.sampling_params = sampling_params
         self.block_tables = block_tables
