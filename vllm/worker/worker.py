@@ -102,7 +102,6 @@ class Worker:
 
         input_tokens, input_positions, input_metadata = self._prepare_inputs(
             seqs)
-        print("INP", input_tokens.shape, input_positions.shape, input_metadata)
 
         # Execute the model.
         num_layers = self.model_config.get_num_layers(self.parallel_config)
@@ -175,6 +174,7 @@ class Worker:
                     pref_len = len(prompt_tokens) - seq_data.num_pending_ff_tokens 
                     input_positions.extend(range(pref_len, len(prompt_tokens)))
                     prompt_tokens = prompt_tokens[pref_len:]
+                    seq_data.num_pending_ff_tokens = 0
                 else:
                     # NOTE(woosuk): Here we assume that the first token in the prompt
                     # is always the first token in the sequence.
