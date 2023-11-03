@@ -155,6 +155,11 @@ class Worker:
         # Add prompt tokens.
         prompt_lens: List[int] = []
         kv_lens: List[int] = []
+        num_prompts = 0
+
+        # put ff prompts last
+        seq_group_metadata_list.sort(key=lambda x: x.is_ff)
+
         for seq_group_metadata in seq_group_metadata_list:
             if not seq_group_metadata.is_prompt:
                 continue
@@ -162,6 +167,9 @@ class Worker:
             seq_ids = list(seq_group_metadata.seq_data.keys())
             sampling_params = seq_group_metadata.sampling_params
             seq_groups.append((seq_ids, sampling_params))
+
+            if not seq_group_metadata.is_ff:
+                num_prompts += 1
 
             for seq_id in seq_ids:
                 seq_data = seq_group_metadata.seq_data[seq_id]
@@ -274,6 +282,7 @@ class Worker:
             context_lens=context_lens_tensor,
             max_context_len=max_context_len,
             block_tables=block_tables_tensor,
+            num_prompts=num_prompts,
         )
         return tokens_tensor, positions_tensor, input_metadata
 
