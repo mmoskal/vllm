@@ -106,8 +106,8 @@ def detokenize_incrementally(
     prefix_offset: int = 0,
     read_offset: int = 0,
     skip_special_tokens: bool = False,
+    num_done: int = -1,
 ) -> Tuple[List[str], str, int, int]:
-    new_token_id = all_input_ids[-1]
     # This is the first iteration for this sequence
     if prev_tokens is None:
         new_tokens = tokenizer.convert_ids_to_tokens(
@@ -121,7 +121,7 @@ def detokenize_incrementally(
     else:
         # Put new_token_id in a list so skip_special_tokens is respected
         new_tokens = tokenizer.convert_ids_to_tokens(
-            [new_token_id], skip_special_tokens=skip_special_tokens)
+            all_input_ids[num_done:], skip_special_tokens=skip_special_tokens)
         output_tokens = prev_tokens + new_tokens
 
     # The prefix text is necessary only to defeat cleanup algorithms in

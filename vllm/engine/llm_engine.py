@@ -638,7 +638,9 @@ class LLMEngine:
              prefix_offset=seq.prefix_offset,
              read_offset=seq.read_offset,
              skip_special_tokens=True,
+             num_done=seq.tokens_done,
          )
+        # print("TOK", seq.get_token_ids(), seq.tokens, new_tokens, "<"+new_output_text+">")
         if seq.tokens is None:
             seq.tokens = new_tokens
         else:
@@ -646,6 +648,7 @@ class LLMEngine:
         seq.prefix_offset = prefix_offset
         seq.read_offset = read_offset
         seq.output_text += new_output_text
+        seq.tokens_done = len(seq.get_token_ids())
 
     def _check_stop(self, seq: Sequence,
                     sampling_params: SamplingParams) -> None:
