@@ -195,7 +195,6 @@ class Scheduler:
 
                     seq.pending_ff_tokens = []
                     seq.data.num_pending_ff_tokens = num_toks
-                    print("FF TOKENS", num_toks) # remove me
                     num_curr_seqs += 1
                     num_batched_tokens += num_toks
 
