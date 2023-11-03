@@ -62,6 +62,7 @@ class SequenceData:
         self.output_token_ids: List[int] = []
         self.cumulative_logprob = 0.0
         self.num_pending_ff_tokens = 0
+        self.parent_id = None
 
     def append_token_id(self, token_id: int, logprob: float) -> None:
         self.output_token_ids.append(token_id)

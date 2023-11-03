@@ -318,6 +318,7 @@ class Scheduler:
         return seq_group_metadata_list, scheduler_outputs
 
     def fork_seq(self, parent_seq: Sequence, child_seq: Sequence) -> None:
+        child_seq.data.parent_id = parent_seq.seq_id
         self.block_manager.fork(parent_seq, child_seq)
 
     def free_seq(self, seq: Sequence) -> None:
