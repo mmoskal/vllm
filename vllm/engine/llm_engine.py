@@ -350,7 +350,8 @@ class LLMEngine:
 
     def _process_sequence_group_samples(
             self, seq_group: SequenceGroup,
-            samples: List[SequenceOutputs]) -> None:
+            samples: List[SequenceOutputs],
+            is_prompt=False) -> None:
         parent_seqs = seq_group.get_seqs(status=SequenceStatus.RUNNING)
         existing_finished_seqs = seq_group.get_finished_seqs()
         parent_child_dict = {
@@ -371,9 +372,10 @@ class LLMEngine:
                 # This parent sequence has no children samples. Remove
                 # the parent sequence from the sequence group since it will
                 # not be used in the future iterations.
-                parent.status = SequenceStatus.FINISHED_ABORTED
-                seq_group.remove(parent.seq_id)
-                self.scheduler.free_seq(parent)
+                if not is_prompt:
+                    parent.status = SequenceStatus.FINISHED_ABORTED
+                    seq_group.remove(parent.seq_id)
+                    self.scheduler.free_seq(parent)
                 continue
             # Fork the parent sequence if there are multiple child samples.
             for child_sample in child_samples[:-1]:
@@ -522,7 +524,7 @@ class LLMEngine:
         # Update the scheduled sequence groups with the model outputs.
         scheduled_seq_groups = scheduler_outputs.scheduled_seq_groups
         for seq_group, samples in zip(scheduled_seq_groups, output):
-            self._process_sequence_group_samples(seq_group, samples)
+            self._process_sequence_group_samples(seq_group, samples, is_prompt=scheduler_outputs.prompt_run)
 
         # Free the finished sequence groups.
         self.scheduler.free_finished_seq_groups()

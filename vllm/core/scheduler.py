@@ -297,14 +297,16 @@ class Scheduler:
         for seq_group in scheduler_outputs.scheduled_seq_groups:
             seq_data: Dict[int, List[SequenceData]] = {}
             block_tables: Dict[int, List[int]] = {}
-            is_ff = False
-            for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
+            seqs = seq_group.get_seqs(status=SequenceStatus.RUNNING)
+            ff_seqs = [seq for seq in seqs if seq.data.num_pending_ff_tokens > 0]
+            is_ff = len(ff_seqs) > 0
+            if is_ff:
+                assert scheduler_outputs.prompt_run
+                seqs = ff_seqs
+            for seq in seqs:
                 seq_id = seq.seq_id
                 seq_data[seq_id] = seq.data
                 block_tables[seq_id] = self.block_manager.get_block_table(seq)
-                if seq.data.num_pending_ff_tokens:
-                    assert scheduler_outputs.prompt_run
-                    is_ff = True
 
             seq_group_metadata = SequenceGroupMetadata(
                 request_id=seq_group.request_id,
