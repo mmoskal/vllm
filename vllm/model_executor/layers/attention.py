@@ -111,6 +111,12 @@ class PagedAttention(nn.Module):
                                             self.num_queries_per_kv,
                                             dim=1)
 
+        # Shape should be like `[*, q_seqlen, k_seqlen]`
+        #print('query.shape = ' + str(query.shape))
+        #print('key.shape = ' + str(key.shape))
+        #materialized_bias = input_metadata.attn_bias[0].materialize(shape=[1, query.shape[0], key.shape[0]], dtype=query.dtype)
+        #print("materialized_bias = " + str(materialized_bias))
+
         # TODO(woosuk): The unsqueeze op may incur some CPU overhead. Optimize.
         out = xops.memory_efficient_attention_forward(
             query.unsqueeze(0),
@@ -130,7 +136,7 @@ class PagedAttention(nn.Module):
         query: torch.Tensor,
         key_cache: torch.Tensor,
         value_cache: torch.Tensor,
-        input_metadata: InputMetadata,
+        input_metadata: InputMetadata
     ) -> None:
         """PagedAttention for the generation tokens.
 
@@ -156,6 +162,7 @@ class PagedAttention(nn.Module):
             block_size,
             input_metadata.max_context_len,
             None,  # alibi_slopes
+            input_metadata.dynamic_mask
         )
 
     def forward(
@@ -246,7 +253,44 @@ class PagedAttention(nn.Module):
         return output.view(-1, self.num_heads * self.head_size)
 
 
-class PagedAttentionWithRoPE(PagedAttention):
+class PagedDynamicMaskedAttention(PagedAttention):
+    """PagedAttention with dynamic masking."""
+
+    def __init__(self,
+                 num_heads: int,
+                 head_size: int,
+                 scale: float,
+                 num_kv_heads: Optional[int] = None) -> None:
+        super().__init__(num_heads, head_size, scale, num_kv_heads)
+
+    def set_attn_bias(
+        self,
+        input_metadata: InputMetadata,
+        dtype: torch.dtype,
+    ) -> None:
+        del dtype  # Unused.
+        if input_metadata.attn_bias:
+            # Already set by a previous layer.
+            return
+        prompt_lens = input_metadata.prompt_lens
+        attn_bias = BlockDiagonalCausalMask.from_seqlens(prompt_lens)
+        input_metadata.attn_bias.append(attn_bias)
+
+        ### TODO EMK: temp test replace attn_bias with just a tensor that sets token 2 to false.  that's it. see what happens
+        #batch_size = 1
+        #num_heads = self.num_heads
+        #print("prompt_lens = " + str(prompt_lens))
+        #print("len(prompt_lens) = " + str(len(prompt_lens)))
+        #seq_len = sum(prompt_lens)
+        ## round seq_len up to a factor of 8
+        #seq_len_8 = (seq_len + 7) // 8 * 8
+        #attention_mask = torch.zeros(size = [batch_size, num_heads, seq_len_8, seq_len_8],dtype=dtype)[:,:,:seq_len,:seq_len]
+        #attention_mask[:, :, :, 1] = -1e9
+        #attention_mask_cuda = attention_mask.to('cuda')
+        #input_metadata.attn_bias.append(attention_mask_cuda)
+
+
+class PagedAttentionWithRoPE(PagedDynamicMaskedAttention):
     """PagedAttention with rotary embedding."""
 
     def __init__(
@@ -451,4 +495,5 @@ class PagedAttentionWithALiBi(PagedAttention):
             block_size,
             input_metadata.max_context_len,
             self.alibi_slopes,
+            input_metadata.dynamic_mask
         )

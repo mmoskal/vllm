@@ -46,6 +46,7 @@ def ref_single_query_cached_kv_attention(
     context_lens: torch.Tensor,
     scale: float,
     alibi_slopes: Optional[torch.Tensor],
+    dynamic_mask: torch.Tensor
 ) -> None:
     num_query_heads = query.shape[1]
     num_kv_heads = value_cache.shape[1]
@@ -138,6 +139,8 @@ def test_single_query_cached_kv_attention(
     max_context_len = max(context_lens)
     context_lens = torch.tensor(context_lens, dtype=torch.int, device="cuda")
 
+    dynamic_mask = torch.ones(context_lens, dtype=torch.bool, device="cuda") # TODOEMK not sure context_lens is right.  should it be max_contentlen?
+
     # Create the block tables.
     max_num_blocks_per_seq = (max_context_len + block_size - 1) // block_size
     block_tables = []
@@ -169,6 +172,7 @@ def test_single_query_cached_kv_attention(
         block_size,
         max_context_len,
         alibi_slopes,
+        dynamic_mask
     )
 
     # Run the reference implementation.
@@ -183,6 +187,7 @@ def test_single_query_cached_kv_attention(
         context_lens,
         scale,
         alibi_slopes,
+        dynamic_mask
     )
 
     # NOTE(woosuk): Due to the kernel-level differences in the two

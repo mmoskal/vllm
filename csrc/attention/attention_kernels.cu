@@ -82,6 +82,7 @@ __global__ void single_query_cached_kv_attention_kernel(
   const int* __restrict__ context_lens,   // [num_seqs]
   const int max_num_blocks_per_seq,
   const float* __restrict__ alibi_slopes, // [num_heads]
+  const bool* __restrict__ dynamic_mask,          // [num_seqs, max_context_len]
   const int q_stride,
   const int kv_block_stride,
   const int kv_head_stride) {
@@ -183,7 +184,9 @@ __global__ void single_query_cached_kv_attention_kernel(
       if (thread_group_offset == 0) {
         // Store the partial reductions to shared memory.
         // NOTE(woosuk): It is required to zero out the masked logits.
-        const bool mask = token_idx >= context_len;
+
+        // EMK: const bool mask = token_idx >= context_len;
+        const bool mask = token_idx >= context_len || dynamic_mask[token_idx];
         logits[token_idx] = mask ? 0.f : qk;
         // Update the max value.
         qk_max = mask ? qk_max : fmaxf(qk_max, qk);
@@ -263,14 +266,29 @@ __global__ void single_query_cached_kv_attention_kernel(
       if (row_idx < HEAD_SIZE) {
         const int offset = row_idx * BLOCK_SIZE + physical_block_offset;
         V_vec v_vec = *reinterpret_cast<const V_vec*>(v_ptr + offset);
-        if (block_idx == num_blocks - 1) {
+
+        // NOTE(EMK): If dynamic_mask[tokenidx] == True, then we zero out the v_vec_ptr[j] value
+        // to avoid the same NaN problem as woosuk notes below. We also introduce the dynamic masking
+        // into the block below, in addition to zeroing out values that out of context because of
+        // prompt length
+        if (block_idx != num_blocks - 1) {
+          scalar_t* v_vec_ptr = reinterpret_cast<scalar_t*>(&v_vec);
+#pragma unroll
+          for (int j = 0; j <= V_VEC_SIZE; j++) {
+            const bool mask = dynamic_mask[token_idx + j];
+            v_vec_ptr[j] = mask ? zero_value : v_vec_ptr[j];
+          }
+        } 
+        else if (block_idx == num_blocks - 1) {
           // NOTE(woosuk): When v_vec contains the tokens that are out of the context,
           // we should explicitly zero out the values since they may contain NaNs.
           // See https://github.com/vllm-project/vllm/issues/641#issuecomment-1682544472
           scalar_t* v_vec_ptr = reinterpret_cast<scalar_t*>(&v_vec);
 #pragma unroll
           for (int j = 0; j <= V_VEC_SIZE; j++) {
+            const bool mask = dynamic_mask[token_idx + j];
             v_vec_ptr[j] = token_idx + j < context_len ? v_vec_ptr[j] : zero_value;
+            v_vec_ptr[j] = mask ? zero_value : v_vec_ptr[j];
           }
         }
         accs[i] += dot(logits_vec, v_vec);
@@ -353,6 +371,7 @@ __global__ void single_query_cached_kv_attention_kernel(
     context_lens_ptr,                                                                         \
     max_num_blocks_per_seq,                                                                   \
     alibi_slopes_ptr,                                                                         \
+    dynamic_mask_ptr,                                                                         \
     q_stride,                                                                                 \
     kv_block_stride,                                                                          \
     kv_head_stride);
@@ -372,7 +391,8 @@ void single_query_cached_kv_attention_launcher(
   torch::Tensor& block_tables,
   torch::Tensor& context_lens,
   int max_context_len,
-  const c10::optional<torch::Tensor>& alibi_slopes) {
+  const c10::optional<torch::Tensor>& alibi_slopes,
+  const torch::Tensor& dynamic_mask) {
   int num_seqs = query.size(0);
   int num_heads = query.size(1);
   int head_size = query.size(2);
@@ -388,6 +408,8 @@ void single_query_cached_kv_attention_launcher(
   const float* alibi_slopes_ptr = alibi_slopes ?
     reinterpret_cast<const float*>(alibi_slopes.value().data_ptr())
     : nullptr;
+
+  const bool* dynamic_mask_ptr = reinterpret_cast<const bool*>(dynamic_mask.data_ptr());
 
   T* out_ptr = reinterpret_cast<T*>(out.data_ptr());
   T* query_ptr = reinterpret_cast<T*>(query.data_ptr());
@@ -453,7 +475,8 @@ void single_query_cached_kv_attention_launcher(
     block_tables,                                                   \
     context_lens,                                                   \
     max_context_len,                                                \
-    alibi_slopes);
+    alibi_slopes,                                                   \
+    dynamic_mask);
 
 // NOTE(woosuk): To reduce the compilation time, we omitted block sizes
 // 1, 2, 4, 64, 128, 256.
@@ -502,7 +525,8 @@ void single_query_cached_kv_attention(
   torch::Tensor& context_lens,    // [num_seqs]
   int block_size,
   int max_context_len,
-  const c10::optional<torch::Tensor>& alibi_slopes) {
+  const c10::optional<torch::Tensor>& alibi_slopes,
+  const torch::Tensor& dynamic_mask) {
   if (query.dtype() == at::ScalarType::Float) {
     CALL_KERNEL_LAUNCHER_BLOCK_SIZE(float);
   } else if (query.dtype() == at::ScalarType::Half) {

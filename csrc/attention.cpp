@@ -12,7 +12,8 @@ void single_query_cached_kv_attention(
   torch::Tensor& context_lens,
   int block_size,
   int max_context_len,
-  const c10::optional<torch::Tensor>& alibi_slopes);
+  const c10::optional<torch::Tensor>& alibi_slopes,
+  const torch::Tensor& dynamic_mask);
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def(

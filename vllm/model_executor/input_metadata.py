@@ -17,7 +17,8 @@ class InputMetadata:
         slot_mapping: The address to write the new KV to of each token.
         context_lens: the length of attention context for each generation token.
         max_context_len: The maximum context length.
-        block_tables: The block tables. (Seq id -> list of physical block)
+        block_tables: The block tables. (Seq id -> list of physical block),
+        dynamic_mask: The dynamic mask. a list of bools of at least context_lens TODOEMK -- or is it exactly generation length long? what's the right thing
     """
 
     def __init__(
@@ -29,6 +30,7 @@ class InputMetadata:
         context_lens: torch.Tensor,
         max_context_len: int,
         block_tables: torch.Tensor,
+        dynamic_mask: torch.Tensor,
     ) -> None:
         self.seq_groups = seq_groups
         self.seq_data = seq_data
@@ -48,6 +50,11 @@ class InputMetadata:
             self.max_num_blocks_per_seq = 0
         assert block_tables.shape[0] == self.num_generation_tokens
         assert context_lens.shape[0] == self.num_generation_tokens
+
+        # TODO EMK - I'm not sure if this is the right thing to assert -- maybe should be some sort of "max context len"?
+        assert dynamic_mask.shape[0] == self.num_generation_tokens
+        assert dynamic_mask.dtype == torch.bool
+        self.dynamic_mask = dynamic_mask
 
         # Set during the execution of the first attention op.
         self.attn_bias: List[AttentionBias] = []
