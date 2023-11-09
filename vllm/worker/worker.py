@@ -90,7 +90,7 @@ class Worker:
         for group_id in range(max_num_seqs):
             seq_len = (max_num_batched_tokens // max_num_seqs +
                        (group_id < max_num_batched_tokens % max_num_seqs))
-            seq_data = SequenceData([0] * seq_len)
+            seq_data = SequenceData([0] * seq_len, [False] * seq_len) #TODOEMK1
             seq = SequenceGroupMetadata(
                 request_id=str(group_id),
                 is_prompt=True,
@@ -149,6 +149,7 @@ class Worker:
         input_tokens: List[int] = []
         input_positions: List[int] = []
         slot_mapping: List[int] = []
+        dynamic_masks: List[List[bool]] = []
 
         # Add prompt tokens.
         prompt_lens: List[int] = []
@@ -238,20 +239,24 @@ class Worker:
         ]
         block_tables_tensor = torch.cuda.IntTensor(padded_block_tables)
 
+        # Collect dynamic masks
+        for seq_group_metadata in seq_group_metadata_list:
+            seq_ids = list(seq_group_metadata.seq_data.keys())
+            seq_id = seq_ids[0]
+            seq_data = seq_group_metadata.seq_data[seq_id]
+
+            # TODOEMK assert len(seq_data.dynamic_mask) <= max_context_len, "dynamic mask cannot be longer than max_context length"
+            if len(seq_data.dynamic_mask) < max_context_len:
+                seq_data.dynamic_mask.extend([False] * (max_context_len - len(seq_data.dynamic_mask)))
+
+            dynamic_masks.extend(seq_data.dynamic_mask)
+
+        # initialize dynamic_mask_tensor, should be of size max_content_len x num prompts
+        dynamic_mask_tensor = torch.tensor(dynamic_masks, dtype=torch.bool, device='cuda')
+
         seq_data: Dict[int, SequenceData] = {}
         for seq_group_metadata in seq_group_metadata_list:
             seq_data.update(seq_group_metadata.seq_data)
-
-        # initialize dynamic_mask as a bool tensor of all True values, the tensor is of size max_content_len x num prompts
-        # TODO EMK - take this mask from the request itself
-        dynamic_mask = torch.zeros((context_lens_tensor.shape[0], max_context_len), dtype=torch.bool, device='cuda')
-
-        # loop through input_tokens and if any of the values in the list is equal to hack_mask_token,
-        #  set the corresponding value in dynamic_mask to True
-        hack_mask_token = 10432 # 'Spanish' in llama encoding
-        for i in range(len(input_tokens)):
-            if input_tokens[i] == hack_mask_token and i < max_context_len:
-                dynamic_mask[i] = True
 
         input_metadata = InputMetadata(
             seq_groups=seq_groups,
@@ -261,7 +266,7 @@ class Worker:
             context_lens=context_lens_tensor,
             max_context_len=max_context_len,
             block_tables=block_tables_tensor,
-            dynamic_mask=dynamic_mask
+            dynamic_mask=dynamic_mask_tensor
         )
         return tokens_tensor, positions_tensor, input_metadata
 

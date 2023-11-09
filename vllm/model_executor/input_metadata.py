@@ -51,8 +51,7 @@ class InputMetadata:
         assert block_tables.shape[0] == self.num_generation_tokens
         assert context_lens.shape[0] == self.num_generation_tokens
 
-        # TODO EMK - I'm not sure if this is the right thing to assert -- maybe should be some sort of "max context len"?
-        assert dynamic_mask.shape[0] == self.num_generation_tokens
+        assert dynamic_mask.shape[0] == (context_lens[0].item() if len(context_lens)>0 else self.num_prompt_tokens + self.num_generation_tokens)
         assert dynamic_mask.dtype == torch.bool
         self.dynamic_mask = dynamic_mask
 

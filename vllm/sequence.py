@@ -47,22 +47,29 @@ class SequenceData:
 
     Args:
         prompt_token_ids: The token IDs of the prompt.
+        dynamic_mask: The dynamic mask on the prompt.  THis is a list of bools, where dynamic[i] == True ==> token i is masked.
 
     Attributes:
         prompt_token_ids: The token IDs of the prompt.
         output_token_ids: The token IDs of the output.
         cumulative_logprob: The cumulative log probability of the output.
+        dynamic_mask: The bool attention mask to be applied dynamically to generation.
     """
 
     def __init__(
         self,
         prompt_token_ids: List[int],
+        dynamic_mask: List[bool]
     ) -> None:
         self.prompt_token_ids = prompt_token_ids
         self.output_token_ids: List[int] = []
         self.cumulative_logprob = 0.0
+        assert dynamic_mask is not None and len(dynamic_mask) >= len(prompt_token_ids), "Dynamic mask must be at least as long as the prompt."
+        self.dynamic_mask = dynamic_mask 
 
     def append_token_id(self, token_id: int, logprob: float) -> None:
+        if len(self.prompt_token_ids) + len(self.output_token_ids) > len(self.dynamic_mask):
+            self.dynamic_mask.append(False) # TODOEMK is this the right thing to do?
         self.output_token_ids.append(token_id)
         self.cumulative_logprob += logprob
 
@@ -97,6 +104,7 @@ class Sequence:
         seq_id: The ID of the sequence.
         prompt: The prompt of the sequence.
         prompt_token_ids: The token IDs of the prompt.
+        dynamic_mask: The bool attention mask to be applied dynamically to generation.
         block_size: The block size of the sequence. Should be the same as the
             block size used by the block manager and cache engine.
     """
@@ -106,13 +114,14 @@ class Sequence:
         seq_id: int,
         prompt: str,
         prompt_token_ids: List[int],
+        dynamic_mask: List[bool],
         block_size: int,
     ) -> None:
         self.seq_id = seq_id
         self.prompt = prompt
         self.block_size = block_size
 
-        self.data = SequenceData(prompt_token_ids)
+        self.data = SequenceData(prompt_token_ids, dynamic_mask)
         self.output_logprobs: List[Dict[int, float]] = []
         self.output_text = ""
 

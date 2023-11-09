@@ -234,6 +234,7 @@ class LLMEngine:
         prompt: Optional[str],
         sampling_params: SamplingParams,
         prompt_token_ids: Optional[List[int]] = None,
+        dynamic_mask: Optional[List[bool]] = None,
         arrival_time: Optional[float] = None,
     ) -> None:
         """Add a request to the engine's request pool.
@@ -249,6 +250,7 @@ class LLMEngine:
             sampling_params: The sampling parameters for text generation.
             prompt_token_ids: The token IDs of the prompt. If None, we
                 use the tokenizer to convert the prompts to token IDs.
+            dynamic_mask: The bool attention mask to be applied dynamically to generation.  If None, we set to all False.
             arrival_time: The arrival time of the request. If None, we use
                 the current time.
         """
@@ -258,10 +260,19 @@ class LLMEngine:
             assert prompt is not None
             prompt_token_ids = self.tokenizer.encode(prompt)
 
+        if dynamic_mask is None:
+            dynamic_mask = [False] * len(prompt_token_ids)
+
+        # TODOEMK remove this hack that was added for testing of masking
+        #hack_mask_token_id = 10432 # 'Spanish' in llama encoding
+        #for i in range(len(prompt_token_ids)):
+        #    if prompt_token_ids[i] == hack_mask_token_id:
+        #        dynamic_mask[i] = True
+
         # Create the sequences.
         block_size = self.cache_config.block_size
         seq_id = next(self.seq_counter)
-        seq = Sequence(seq_id, prompt, prompt_token_ids, block_size)
+        seq = Sequence(seq_id, prompt, prompt_token_ids, dynamic_mask, block_size)
 
         # Create the sequence group.
         seq_group = SequenceGroup(request_id, [seq], sampling_params,
