@@ -177,6 +177,30 @@ class Scheduler:
                 num_curr_seqs += num_new_seqs
                 scheduled.append(seq_group)
 
+            for seq_group in self.running:
+                found_some = False
+                for seq in seq_group.get_seqs(SequenceStatus.RUNNING):
+                    if not seq.pending_ff_tokens:
+                        continue
+                    found_some = True
+
+                    # the first token was appended in sampling already
+                    num_toks = len(seq.pending_ff_tokens) + 1
+                    self._append_slot_to_seq(seq, blocks_to_copy)
+                    # append the rest of token
+                    for t in seq.pending_ff_tokens:
+                        # probability of the token is 1.0, so logprob is 0.0
+                        seq.append_token_id(t, {t: 0.0})
+                        self._append_slot_to_seq(seq, blocks_to_copy)
+
+                    seq.pending_ff_tokens = []
+                    seq.data.num_pending_ff_tokens = num_toks
+                    num_curr_seqs += 1
+                    num_batched_tokens += num_toks
+
+                if found_some:
+                    scheduled.append(seq_group)
+
             if scheduled:
                 scheduler_outputs = SchedulerOutputs(
                     scheduled_seq_groups=scheduled,
@@ -272,7 +296,13 @@ class Scheduler:
         for seq_group in scheduler_outputs.scheduled_seq_groups:
             seq_data: Dict[int, List[SequenceData]] = {}
             block_tables: Dict[int, List[int]] = {}
-            for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
+            seqs = seq_group.get_seqs(status=SequenceStatus.RUNNING)
+            ff_seqs = [seq for seq in seqs if seq.data.num_pending_ff_tokens > 0]
+            is_ff = len(ff_seqs) > 0
+            if is_ff:
+                assert scheduler_outputs.prompt_run
+                seqs = ff_seqs
+            for seq in seqs:
                 seq_id = seq.seq_id
                 seq_data[seq_id] = seq.data
                 block_tables[seq_id] = self.block_manager.get_block_table(seq)
@@ -283,11 +313,13 @@ class Scheduler:
                 seq_data=seq_data,
                 sampling_params=seq_group.sampling_params,
                 block_tables=block_tables,
+                is_ff=is_ff,
             )
             seq_group_metadata_list.append(seq_group_metadata)
         return seq_group_metadata_list, scheduler_outputs
 
     def fork_seq(self, parent_seq: Sequence, child_seq: Sequence) -> None:
+        child_seq.data.parent_id = parent_seq.seq_id
         self.block_manager.fork(parent_seq, child_seq)
 
     def free_seq(self, seq: Sequence) -> None:
@@ -305,19 +337,23 @@ class Scheduler:
         for seq in seq_group.get_seqs():
             seq.status = SequenceStatus.RUNNING
 
+    def _append_slot_to_seq(self, seq: Sequence, blocks_to_copy: Dict[int, List[int]]):
+        ret = self.block_manager.append_slot(seq)
+        if ret is not None:
+            src_block, dst_block = ret
+            if src_block in blocks_to_copy:
+                blocks_to_copy[src_block].append(dst_block)
+            else:
+                blocks_to_copy[src_block] = [dst_block]
+
     def _append_slot(
         self,
         seq_group: SequenceGroup,
         blocks_to_copy: Dict[int, List[int]],
     ) -> None:
         for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
-            ret = self.block_manager.append_slot(seq)
-            if ret is not None:
-                src_block, dst_block = ret
-                if src_block in blocks_to_copy:
-                    blocks_to_copy[src_block].append(dst_block)
-                else:
-                    blocks_to_copy[src_block] = [dst_block]
+            assert not seq.pending_ff_tokens
+            self._append_slot_to_seq(seq, blocks_to_copy)
 
     def _preempt(
         self,

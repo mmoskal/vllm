@@ -53,7 +53,7 @@ class Sampler(nn.Module):
 
         # Apply presence and frequency penalties.
         output_tokens = _get_output_tokens(input_metadata)
-        assert len(output_tokens) == logits.shape[0]
+        assert len(output_tokens) == logits.shape[0], f"{len(output_tokens)} != {logits.shape} {input_metadata}"
         presence_penalties, frequency_penalties = _get_penalties(
             input_metadata)
         assert len(presence_penalties) == logits.shape[0]

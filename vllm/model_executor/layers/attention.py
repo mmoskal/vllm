@@ -4,8 +4,11 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 from xformers import ops as xops
-from xformers.ops.fmha.attn_bias import (BlockDiagonalCausalMask,
-                                         LowerTriangularMaskWithTensorBias)
+from xformers.ops.fmha.attn_bias import (
+    BlockDiagonalCausalMask,
+    BlockDiagonalCausalFromBottomRightMask,
+    LowerTriangularMaskWithTensorBias,
+)
 
 from vllm import attention_ops
 from vllm import cache_ops
@@ -52,11 +55,13 @@ class PagedAttention(nn.Module):
     5. Output a flattened 1D tensor.
     """
 
-    def __init__(self,
-                 num_heads: int,
-                 head_size: int,
-                 scale: float,
-                 num_kv_heads: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        num_heads: int,
+        head_size: int,
+        scale: float,
+        num_kv_heads: Optional[int] = None,
+    ) -> None:
         super().__init__()
         self.num_heads = num_heads
         self.head_size = head_size
@@ -67,11 +72,14 @@ class PagedAttention(nn.Module):
         self.num_queries_per_kv = self.num_heads // self.num_kv_heads
         self.head_mapping = torch.repeat_interleave(
             torch.arange(self.num_kv_heads, dtype=torch.int32, device="cuda"),
-            self.num_queries_per_kv)
+            self.num_queries_per_kv,
+        )
 
         if self.head_size not in _SUPPORTED_HEAD_SIZES:
-            raise ValueError(f"head_size ({self.head_size}) is not supported. "
-                             f"Supported head sizes: {_SUPPORTED_HEAD_SIZES}.")
+            raise ValueError(
+                f"head_size ({self.head_size}) is not supported. "
+                f"Supported head sizes: {_SUPPORTED_HEAD_SIZES}."
+            )
 
     def set_attn_bias(
         self,
@@ -83,7 +91,8 @@ class PagedAttention(nn.Module):
             # Already set by a previous layer.
             return
         prompt_lens = input_metadata.prompt_lens
-        attn_bias = BlockDiagonalCausalMask.from_seqlens(prompt_lens)
+        kv_lens = input_metadata.kv_lens
+        attn_bias = BlockDiagonalCausalFromBottomRightMask.from_seqlens(prompt_lens, kv_lens)
         input_metadata.attn_bias.append(attn_bias)
 
     def multi_query_kv_attention(
@@ -107,9 +116,7 @@ class PagedAttention(nn.Module):
         if self.num_kv_heads != self.num_heads:
             # Project the key and value tensors to the desired number of heads.
             key = torch.repeat_interleave(key, self.num_queries_per_kv, dim=1)
-            value = torch.repeat_interleave(value,
-                                            self.num_queries_per_kv,
-                                            dim=1)
+            value = torch.repeat_interleave(value, self.num_queries_per_kv, dim=1)
 
         # Shape should be like `[*, q_seqlen, k_seqlen]`
         #print('query.shape = ' + str(query.shape))
@@ -203,31 +210,57 @@ class PagedAttention(nn.Module):
         # Pre-allocate the output tensor.
         output = torch.empty_like(query)
 
-        # Compute the attention op for prompts.
-        num_prompt_tokens = input_metadata.num_prompt_tokens
-        if num_prompt_tokens > 0:
-            # Prompt run.
+        if input_metadata.gather_slot_mapping is None:
+            # Compute the attention op for prompts.
+            num_prompt_tokens = input_metadata.num_prompt_tokens
+            if num_prompt_tokens > 0:
+                # Prompt run.
+                assert input_metadata.num_generation_tokens == 0
+                self.set_attn_bias(input_metadata, dtype=query.dtype)
+                self.multi_query_kv_attention(
+                    output[:num_prompt_tokens],
+                    query[:num_prompt_tokens],
+                    key[:num_prompt_tokens],
+                    value[:num_prompt_tokens],
+                    input_metadata,
+                )
+
+            # Wait until the cache op is done.
+            if cache_event is not None:
+                cache_event.wait()
+
+            # Reshape the keys and values and store them in the cache.
+            # When key_cache and value_cache are not provided, the new key
+            # and value vectors will not be cached.
+            num_valid_tokens = input_metadata.num_valid_tokens
+            if (
+                num_valid_tokens > 0
+                and key_cache is not None
+                and value_cache is not None
+            ):
+                # The stride is 3 because the key and value are sliced from qkv.
+                cache_ops.reshape_and_cache(
+                    key[:num_valid_tokens],
+                    value[:num_valid_tokens],
+                    key_cache,
+                    value_cache,
+                    input_metadata.slot_mapping,
+                )
+        else:
             assert input_metadata.num_generation_tokens == 0
-            self.set_attn_bias(input_metadata, dtype=query.dtype)
-            self.multi_query_kv_attention(
-                output[:num_prompt_tokens],
-                query[:num_prompt_tokens],
-                key[:num_prompt_tokens],
-                value[:num_prompt_tokens],
-                input_metadata,
+
+            # Wait until the cache op is done.
+            if cache_event is not None:
+                cache_event.wait()
+
+            num_valid_tokens = input_metadata.num_valid_tokens
+            assert (
+                num_valid_tokens > 0
+                and key_cache is not None
+                and value_cache is not None
             )
 
-        # Wait until the cache op is done.
-        if cache_event is not None:
-            cache_event.wait()
-
-        # Reshape the keys and values and store them in the cache.
-        # When key_cache and value_cache are not provided, the new key
-        # and value vectors will not be cached.
-        num_valid_tokens = input_metadata.num_valid_tokens
-        if (num_valid_tokens > 0 and key_cache is not None
-                and value_cache is not None):
-            # The stride is 3 because the key and value are sliced from qkv.
+            # first, stuff the query-sized key/value into the cache
             cache_ops.reshape_and_cache(
                 key[:num_valid_tokens],
                 value[:num_valid_tokens],
@@ -236,17 +269,51 @@ class PagedAttention(nn.Module):
                 input_metadata.slot_mapping,
             )
 
+            # then, extend key/value and fill them from cache
+            key = torch.empty(
+                (
+                    input_metadata.gather_slot_mapping.shape[0],
+                    self.num_kv_heads,
+                    self.head_size,
+                ),
+                dtype=key.dtype,
+                device=key.device,
+            )
+            value = torch.empty_like(key)
+            cache_ops.gather_cached_kv(
+                key,
+                value,
+                key_cache,
+                value_cache,
+                input_metadata.gather_slot_mapping,
+            )
+
+            # Compute the attention op for prompts.
+            num_prompt_tokens = input_metadata.num_prompt_tokens
+            assert num_prompt_tokens > 0
+            self.set_attn_bias(input_metadata, dtype=query.dtype)
+            self.multi_query_kv_attention(
+                output[:num_prompt_tokens],
+                query[:num_prompt_tokens],
+                key,
+                value,
+                input_metadata,
+            )
+
         if input_metadata.num_generation_tokens > 0:
             # Decoding run.
             assert input_metadata.num_prompt_tokens == 0
             assert key_cache is not None and value_cache is not None, (
-                "key_cache and value_cache must be provided when "
-                "generating tokens.")
+                "key_cache and value_cache must be provided when " "generating tokens."
+            )
             # Compute the attention op for generation tokens.
             self.single_query_cached_kv_attention(
                 output[num_prompt_tokens:num_valid_tokens],
-                query[num_prompt_tokens:num_valid_tokens], key_cache,
-                value_cache, input_metadata)
+                query[num_prompt_tokens:num_valid_tokens],
+                key_cache,
+                value_cache,
+                input_metadata,
+            )
 
         # Reshape the output tensor.
         # NOTE(woosuk): The output tensor may include paddings.
@@ -271,8 +338,13 @@ class PagedAttentionWithRoPE(PagedAttention):
         self.is_neox_style = is_neox_style
 
         # Create the cos and sin cache.
-        inv_freq = 1.0 / (base**(torch.arange(
-            0, rotary_dim, 2, dtype=torch.float, device="cuda") / rotary_dim))
+        inv_freq = 1.0 / (
+            base
+            ** (
+                torch.arange(0, rotary_dim, 2, dtype=torch.float, device="cuda")
+                / rotary_dim
+            )
+        )
         t = torch.arange(max_position, dtype=torch.float, device="cuda")
         freqs = torch.einsum("i,j -> ij", t, inv_freq)
         cos = freqs.cos()
@@ -298,7 +370,7 @@ class PagedAttentionWithRoPE(PagedAttention):
         input_metadata: InputMetadata,
         cache_event: Optional[torch.cuda.Event],
     ) -> torch.Tensor:
-        """ PagedAttention forward pass with rotary embedding.
+        """PagedAttention forward pass with rotary embedding.
 
         Args:
             positions: shape = [num_tokens]
@@ -340,20 +412,21 @@ class PagedAttentionWithRoPE(PagedAttention):
 class PagedAttentionWithALiBi(PagedAttention):
     """PagedAttention with ALiBi attention bias."""
 
-    def __init__(self,
-                 num_heads: int,
-                 head_size: int,
-                 scale: float,
-                 slopes: List[float],
-                 num_kv_heads: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        num_heads: int,
+        head_size: int,
+        scale: float,
+        slopes: List[float],
+        num_kv_heads: Optional[int] = None,
+    ) -> None:
         super().__init__(num_heads, head_size, scale, num_kv_heads)
         assert len(slopes) == num_heads
 
         slopes = torch.tensor(slopes, dtype=torch.float32)
         self.register_buffer("alibi_slopes", slopes, persistent=False)
 
-    def set_attn_bias(self, input_metadata: InputMetadata,
-                      dtype: torch.dtype) -> None:
+    def set_attn_bias(self, input_metadata: InputMetadata, dtype: torch.dtype) -> None:
         if input_metadata.attn_bias:
             # Already set by a previous layer.
             return
@@ -403,9 +476,7 @@ class PagedAttentionWithALiBi(PagedAttention):
         if self.num_kv_heads != self.num_heads:
             # Project the key and value tensors to the desired number of heads.
             key = torch.repeat_interleave(key, self.num_queries_per_kv, dim=1)
-            value = torch.repeat_interleave(value,
-                                            self.num_queries_per_kv,
-                                            dim=1)
+            value = torch.repeat_interleave(value, self.num_queries_per_kv, dim=1)
 
         # FIXME(woosuk): Because xformers does not support dynamic sequence
         # lengths with custom attention bias, we process each prompt one by

@@ -352,7 +352,8 @@ class LLMEngine:
 
     def _process_sequence_group_samples(
             self, seq_group: SequenceGroup,
-            samples: List[SequenceOutputs]) -> None:
+            samples: List[SequenceOutputs],
+            is_prompt=False) -> None:
         parent_seqs = seq_group.get_seqs(status=SequenceStatus.RUNNING)
         existing_finished_seqs = seq_group.get_finished_seqs()
         parent_child_dict = {
@@ -363,6 +364,7 @@ class LLMEngine:
             parent_child_dict[sample.parent_seq_id].append(sample)
         # List of (child, parent)
         child_seqs: List[Tuple[Sequence, Sequence]] = []
+        SamplingParams.append_ff_tokens(seq_group)
 
         # Process the child samples for each parent sequence
         for parent in parent_seqs:
@@ -372,9 +374,10 @@ class LLMEngine:
                 # This parent sequence has no children samples. Remove
                 # the parent sequence from the sequence group since it will
                 # not be used in the future iterations.
-                parent.status = SequenceStatus.FINISHED_ABORTED
-                seq_group.remove(parent.seq_id)
-                self.scheduler.free_seq(parent)
+                if not is_prompt:
+                    parent.status = SequenceStatus.FINISHED_ABORTED
+                    seq_group.remove(parent.seq_id)
+                    self.scheduler.free_seq(parent)
                 continue
             # Fork the parent sequence if there are multiple child samples.
             for child_sample in child_samples[:-1]:
@@ -391,7 +394,9 @@ class LLMEngine:
                                    last_child_sample.logprobs)
             child_seqs.append((parent, parent))
 
-        for seq, _ in child_seqs:
+        for seq, parent in child_seqs:
+            if parent.pending_ff_tokens:
+                seq.pending_ff_tokens = parent.pending_ff_tokens.copy()
             self._decode_sequence(seq)
             self._check_stop(seq, seq_group.sampling_params)
 
@@ -521,7 +526,7 @@ class LLMEngine:
         # Update the scheduled sequence groups with the model outputs.
         scheduled_seq_groups = scheduler_outputs.scheduled_seq_groups
         for seq_group, samples in zip(scheduled_seq_groups, output):
-            self._process_sequence_group_samples(seq_group, samples)
+            self._process_sequence_group_samples(seq_group, samples, is_prompt=scheduler_outputs.prompt_run)
 
         # Free the finished sequence groups.
         self.scheduler.free_finished_seq_groups()
@@ -637,7 +642,9 @@ class LLMEngine:
              prefix_offset=seq.prefix_offset,
              read_offset=seq.read_offset,
              skip_special_tokens=True,
+             num_done=seq.tokens_done,
          )
+        # print("TOK", seq.get_token_ids(), seq.tokens, new_tokens, "<"+new_output_text+">")
         if seq.tokens is None:
             seq.tokens = new_tokens
         else:
@@ -645,6 +652,7 @@ class LLMEngine:
         seq.prefix_offset = prefix_offset
         seq.read_offset = read_offset
         seq.output_text += new_output_text
+        seq.tokens_done = len(seq.get_token_ids())
 
     def _check_stop(self, seq: Sequence,
                     sampling_params: SamplingParams) -> None:
