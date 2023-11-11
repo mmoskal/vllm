@@ -269,9 +269,6 @@ class Worker:
         ]
         block_tables_tensor = torch.cuda.IntTensor(padded_block_tables)
 
-        # initialize dynamic_mask_tensor, should be of size max_content_len x num prompts
-        dynamic_mask_tensor = self.get_dynamic_mask(len(seq_group_metadata_list), max_context_len)
-
         seq_datas: Dict[int, SequenceData] = {}
         for seq_group_metadata in seq_group_metadata_list:
             seq_datas.update(seq_group_metadata.seq_data)
@@ -279,8 +276,10 @@ class Worker:
         attn_mask = SamplingParams.recv_attention_mask()
         attn_shape = (len(context_lens), max_context_len)
         if attn_mask is None:
+            # default mask is all ones, so will not mask anything (0 value will mask)
             attn_mask = torch.ones(attn_shape, dtype=torch.float32)
-        # print(attn_mask.shape, attn_shape)
+        # note that attn_shape[0] == 0 for prompt runs; numel() == 0 then as well
+        # we only support attn mask for generation runs right now
         assert attn_mask.shape[0] == attn_shape[0]
         assert attn_mask.numel() == attn_shape[0] * attn_shape[1]
         attn_mask = attn_mask.cuda()
@@ -295,7 +294,7 @@ class Worker:
             context_lens=context_lens_tensor,
             max_context_len=max_context_len,
             block_tables=block_tables_tensor,
-            dynamic_mask=dynamic_mask_tensor
+            dynamic_mask=attn_mask,
             num_prompts=num_prompts,
         )
         return tokens_tensor, positions_tensor, input_metadata
@@ -346,12 +345,6 @@ class Worker:
         )
         return output
 
-    
-    @staticmethod
-    def get_dynamic_mask(num_seq: int, max_content_len: int) -> torch.Tensor:
-        """Returns a dynamic mask tensor of size max_content_len x num_seq"""
-        # default mask is all ones, so will not mask anything (0 value will mask)
-        return torch.ones(num_seq, max_content_len, dtype=torch.float, device='cuda')  ## TODOEMK: does this have to be a specific kind of float?
 
 
 def _init_distributed_environment(
