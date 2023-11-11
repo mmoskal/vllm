@@ -185,3 +185,7 @@ class SamplingParams:
     @staticmethod
     def initiate_step(freed_seq_ids, seq_group_metadata_list, scheduler_outputs):
         pass
+
+    @staticmethod
+    def recv_attention_mask():
+        return None

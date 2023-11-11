@@ -272,6 +272,15 @@ class Worker:
         for seq_group_metadata in seq_group_metadata_list:
             seq_datas.update(seq_group_metadata.seq_data)
 
+        attn_mask = SamplingParams.recv_attention_mask()
+        attn_shape = (len(context_lens), max_context_len)
+        if attn_mask is None:
+            attn_mask = torch.ones(attn_shape, dtype=torch.float32)
+        # print(attn_mask.shape, attn_shape)
+        assert attn_mask.shape[0] == attn_shape[0]
+        assert attn_mask.numel() == attn_shape[0] * attn_shape[1]
+        attn_mask = attn_mask.cuda()
+
         input_metadata = InputMetadata(
             seq_groups=seq_groups,
             seq_data=seq_datas,
