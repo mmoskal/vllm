@@ -82,7 +82,7 @@ __global__ void single_query_cached_kv_attention_kernel(
   const int* __restrict__ context_lens,   // [num_seqs]
   const int max_num_blocks_per_seq,
   const float* __restrict__ alibi_slopes, // [num_heads]
-  const bool* __restrict__ dynamic_mask,          // [num_seqs, max_context_len]
+  const float* __restrict__ dynamic_mask,          // [num_seqs, max_context_len]
   const int q_stride,
   const int kv_block_stride,
   const int kv_head_stride) {
@@ -186,7 +186,7 @@ __global__ void single_query_cached_kv_attention_kernel(
         // NOTE(woosuk): It is required to zero out the masked logits.
 
         // EMK: const bool mask = token_idx >= context_len;
-        const bool mask = token_idx >= context_len || dynamic_mask[token_idx];
+        const bool mask = token_idx >= context_len || (dynamic_mask[token_idx] == 0);
         logits[token_idx] = mask ? 0.f : qk;
         // Update the max value.
         qk_max = mask ? qk_max : fmaxf(qk_max, qk);
@@ -267,7 +267,7 @@ __global__ void single_query_cached_kv_attention_kernel(
         const int offset = row_idx * BLOCK_SIZE + physical_block_offset;
         V_vec v_vec = *reinterpret_cast<const V_vec*>(v_ptr + offset);
 
-        // NOTE(EMK): If dynamic_mask[tokenidx] == True, then we zero out the v_vec_ptr[j] value
+        // NOTE(EMK): If dynamic_mask[tokenidx] == 0, then we zero out the v_vec_ptr[j] value
         // to avoid the same NaN problem as woosuk notes below. We also introduce the dynamic masking
         // into the block below, in addition to zeroing out values that out of context because of
         // prompt length
@@ -275,7 +275,7 @@ __global__ void single_query_cached_kv_attention_kernel(
           scalar_t* v_vec_ptr = reinterpret_cast<scalar_t*>(&v_vec);
 #pragma unroll
           for (int j = 0; j <= V_VEC_SIZE; j++) {
-            const bool mask = dynamic_mask[token_idx + j];
+            const bool mask = dynamic_mask[token_idx + j] == 0;
             v_vec_ptr[j] = mask ? zero_value : v_vec_ptr[j];
           }
         } 
@@ -286,7 +286,7 @@ __global__ void single_query_cached_kv_attention_kernel(
           scalar_t* v_vec_ptr = reinterpret_cast<scalar_t*>(&v_vec);
 #pragma unroll
           for (int j = 0; j <= V_VEC_SIZE; j++) {
-            const bool mask = dynamic_mask[token_idx + j];
+            const bool mask = dynamic_mask[token_idx + j] == 0;
             v_vec_ptr[j] = token_idx + j < context_len ? v_vec_ptr[j] : zero_value;
             v_vec_ptr[j] = mask ? zero_value : v_vec_ptr[j];
           }
@@ -409,7 +409,7 @@ void single_query_cached_kv_attention_launcher(
     reinterpret_cast<const float*>(alibi_slopes.value().data_ptr())
     : nullptr;
 
-  const bool* dynamic_mask_ptr = reinterpret_cast<const bool*>(dynamic_mask.data_ptr());
+  const float* dynamic_mask_ptr = reinterpret_cast<const float*>(dynamic_mask.data_ptr()); // TODO EMK - does this have to be a specific size of float?
 
   T* out_ptr = reinterpret_cast<T*>(out.data_ptr());
   T* query_ptr = reinterpret_cast<T*>(query.data_ptr());

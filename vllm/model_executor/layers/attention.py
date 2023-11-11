@@ -253,44 +253,7 @@ class PagedAttention(nn.Module):
         return output.view(-1, self.num_heads * self.head_size)
 
 
-class PagedDynamicMaskedAttention(PagedAttention):
-    """PagedAttention with dynamic masking."""
-
-    def __init__(self,
-                 num_heads: int,
-                 head_size: int,
-                 scale: float,
-                 num_kv_heads: Optional[int] = None) -> None:
-        super().__init__(num_heads, head_size, scale, num_kv_heads)
-
-    def set_attn_bias(
-        self,
-        input_metadata: InputMetadata,
-        dtype: torch.dtype,
-    ) -> None:
-        del dtype  # Unused.
-        if input_metadata.attn_bias:
-            # Already set by a previous layer.
-            return
-        prompt_lens = input_metadata.prompt_lens
-        attn_bias = BlockDiagonalCausalMask.from_seqlens(prompt_lens)
-        input_metadata.attn_bias.append(attn_bias)
-
-        ### TODO EMK: temp test replace attn_bias with just a tensor that sets token 2 to false.  that's it. see what happens
-        #batch_size = 1
-        #num_heads = self.num_heads
-        #print("prompt_lens = " + str(prompt_lens))
-        #print("len(prompt_lens) = " + str(len(prompt_lens)))
-        #seq_len = sum(prompt_lens)
-        ## round seq_len up to a factor of 8
-        #seq_len_8 = (seq_len + 7) // 8 * 8
-        #attention_mask = torch.zeros(size = [batch_size, num_heads, seq_len_8, seq_len_8],dtype=dtype)[:,:,:seq_len,:seq_len]
-        #attention_mask[:, :, :, 1] = -1e9
-        #attention_mask_cuda = attention_mask.to('cuda')
-        #input_metadata.attn_bias.append(attention_mask_cuda)
-
-
-class PagedAttentionWithRoPE(PagedDynamicMaskedAttention):
+class PagedAttentionWithRoPE(PagedAttention):
     """PagedAttention with rotary embedding."""
 
     def __init__(

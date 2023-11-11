@@ -90,7 +90,7 @@ class Worker:
         for group_id in range(max_num_seqs):
             seq_len = (max_num_batched_tokens // max_num_seqs +
                        (group_id < max_num_batched_tokens % max_num_seqs))
-            seq_data = SequenceData([0] * seq_len, [False] * seq_len) #TODOEMK1
+            seq_data = SequenceData([0] * seq_len)
             seq = SequenceGroupMetadata(
                 request_id=str(group_id),
                 is_prompt=True,
@@ -239,20 +239,8 @@ class Worker:
         ]
         block_tables_tensor = torch.cuda.IntTensor(padded_block_tables)
 
-        # Collect dynamic masks
-        for seq_group_metadata in seq_group_metadata_list:
-            seq_ids = list(seq_group_metadata.seq_data.keys())
-            seq_id = seq_ids[0]
-            seq_data = seq_group_metadata.seq_data[seq_id]
-
-            # TODOEMK assert len(seq_data.dynamic_mask) <= max_context_len, "dynamic mask cannot be longer than max_context length"
-            if len(seq_data.dynamic_mask) < max_context_len:
-                seq_data.dynamic_mask.extend([False] * (max_context_len - len(seq_data.dynamic_mask)))
-
-            dynamic_masks.extend(seq_data.dynamic_mask)
-
         # initialize dynamic_mask_tensor, should be of size max_content_len x num prompts
-        dynamic_mask_tensor = torch.tensor(dynamic_masks, dtype=torch.bool, device='cuda')
+        dynamic_mask_tensor = self.get_dynamic_mask(len(seq_group_metadata_list), max_context_len)
 
         seq_data: Dict[int, SequenceData] = {}
         for seq_group_metadata in seq_group_metadata_list:
@@ -315,6 +303,13 @@ class Worker:
             cache_events=cache_events,
         )
         return output
+
+    
+    @staticmethod
+    def get_dynamic_mask(num_seq: int, max_content_len: int) -> torch.Tensor:
+        """Returns a dynamic mask tensor of size max_content_len x num_seq"""
+        # default mask is all ones, so will not mask anything (0 value will mask)
+        return torch.ones(num_seq, max_content_len, dtype=torch.float, device='cuda')  ## TODOEMK: does this have to be a specific kind of float?
 
 
 def _init_distributed_environment(

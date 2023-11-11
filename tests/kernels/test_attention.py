@@ -139,7 +139,7 @@ def test_single_query_cached_kv_attention(
     max_context_len = max(context_lens)
     context_lens = torch.tensor(context_lens, dtype=torch.int, device="cuda")
 
-    dynamic_mask = torch.ones(context_lens, dtype=torch.bool, device="cuda") # TODOEMK not sure context_lens is right.  should it be max_contentlen?
+    dynamic_mask = torch.ones(context_lens, dtype=torch.float, device="cuda") # TODOEMK not sure context_lens is right. should it be max_contentlen?  Also, should dtype be a more specific float?
 
     # Create the block tables.
     max_num_blocks_per_seq = (max_context_len + block_size - 1) // block_size

@@ -18,7 +18,7 @@ class InputMetadata:
         context_lens: the length of attention context for each generation token.
         max_context_len: The maximum context length.
         block_tables: The block tables. (Seq id -> list of physical block),
-        dynamic_mask: The dynamic mask. a list of bools of at least context_lens TODOEMK -- or is it exactly generation length long? what's the right thing
+        dynamic_mask: The dynamic mask. a tensor of at least [ len(seq_groups) X max(seq_data.get_len()) ]
     """
 
     def __init__(
@@ -51,8 +51,9 @@ class InputMetadata:
         assert block_tables.shape[0] == self.num_generation_tokens
         assert context_lens.shape[0] == self.num_generation_tokens
 
-        assert dynamic_mask.shape[0] == (context_lens[0].item() if len(context_lens)>0 else self.num_prompt_tokens + self.num_generation_tokens)
-        assert dynamic_mask.dtype == torch.bool
+        # TODOEMK - I'm not sure if this shape assertion is right anymore
+        #assert dynamic_mask.shape[0] == (context_lens[0].item() if len(context_lens)>0 else self.num_prompt_tokens + self.num_generation_tokens)
+        assert dynamic_mask.dtype == torch.float
         self.dynamic_mask = dynamic_mask
 
         # Set during the execution of the first attention op.
