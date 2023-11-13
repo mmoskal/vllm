@@ -6,6 +6,7 @@ from vllm.config import CacheConfig, SchedulerConfig
 from vllm.core.block_manager import BlockSpaceManager
 from vllm.core.policy import PolicyFactory
 from vllm.logger import init_logger
+from vllm.sampling_params import SamplingParams
 from vllm.sequence import (Sequence, SequenceData, SequenceGroup,
                            SequenceGroupMetadata, SequenceStatus)
 
@@ -290,6 +291,9 @@ class Scheduler:
         # This function call changes the internal states of the scheduler
         # such as self.running, self.swapped, and self.waiting.
         scheduler_outputs = self._schedule()
+
+        SamplingParams.initiate_step(self.freed_seq_ids, scheduler_outputs)
+        self.freed_seq_ids = []
 
         # Create input data structures.
         seq_group_metadata_list: List[SequenceGroupMetadata] = []
