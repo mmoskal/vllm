@@ -183,7 +183,7 @@ class SamplingParams:
         pass
 
     @staticmethod
-    def initiate_step(freed_seq_ids, scheduler_outputs):
+    def initiate_step(scheduler, counter, scheduler_outputs):
         pass
 
     @staticmethod

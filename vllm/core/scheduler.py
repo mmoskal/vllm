@@ -286,13 +286,13 @@ class Scheduler:
         )
         return scheduler_outputs
 
-    def schedule(self) -> Tuple[List[SequenceGroupMetadata], SchedulerOutputs]:
+    def schedule(self, counter) -> Tuple[List[SequenceGroupMetadata], SchedulerOutputs]:
         # Schedule sequence groups.
         # This function call changes the internal states of the scheduler
         # such as self.running, self.swapped, and self.waiting.
         scheduler_outputs = self._schedule()
 
-        SamplingParams.initiate_step(self.freed_seq_ids, scheduler_outputs)
+        SamplingParams.initiate_step(self, counter, scheduler_outputs)
         self.freed_seq_ids = []
 
         # Create input data structures.
