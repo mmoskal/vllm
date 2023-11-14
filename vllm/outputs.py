@@ -83,7 +83,10 @@ class RequestOutput:
         else:
             sorting_key = lambda seq: seq.get_cumulative_logprob()
         sorted_seqs = sorted(seqs, key=sorting_key, reverse=True)
-        top_n_seqs = sorted_seqs[:n]
+        if seq_group.dynamic_forks:
+            top_n_seqs = sorted_seqs
+        else:
+            top_n_seqs = sorted_seqs[:n]
 
         # Create the outputs.
         outputs: List[CompletionOutput] = []
