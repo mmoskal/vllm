@@ -78,6 +78,7 @@ class SamplingParams:
         self.use_beam_search = use_beam_search
         self.length_penalty = length_penalty
         self.early_stopping = early_stopping
+        self.dynamic_forks = False
         if stop is None:
             self.stop = []
         elif isinstance(stop, str):

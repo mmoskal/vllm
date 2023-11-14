@@ -346,9 +346,12 @@ def _sample_from_generation_tokens(
         next_token_ids = [i % vocab_size for i in topk_ids]
     elif sampling_params.temperature < _SAMPLING_EPS:
         # Greedy sampling.
-        assert len(seq_ids) == 1
-        next_token_id = torch.argmax(probs, dim=-1)
-        next_token_ids = [int(next_token_id.item())]
+        if sampling_params.dynamic_forks:
+            next_token_ids = torch.argmax(probs, dim=-1).tolist()
+        else:
+            assert len(seq_ids) == 1
+            next_token_id = torch.argmax(probs, dim=-1)
+            next_token_ids = [int(next_token_id.item())]
         parent_seq_ids = seq_ids
     else:
         # Random sampling.
