@@ -307,6 +307,8 @@ class Scheduler:
                 assert scheduler_outputs.prompt_run
                 seqs = ff_seqs
             for seq in seqs:
+                if seq.skip_round:
+                    continue
                 seq_id = seq.seq_id
                 seq_data[seq_id] = seq.data
                 block_tables[seq_id] = self.block_manager.get_block_table(seq)

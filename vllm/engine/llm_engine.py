@@ -372,7 +372,7 @@ class LLMEngine:
                 # This parent sequence has no children samples. Remove
                 # the parent sequence from the sequence group since it will
                 # not be used in the future iterations.
-                if not is_prompt:
+                if not is_prompt and not parent.skip_round:
                     parent.status = SequenceStatus.FINISHED_ABORTED
                     seq_group.remove(parent.seq_id)
                     self.scheduler.free_seq(parent)

@@ -118,6 +118,7 @@ class Sequence:
         self.output_logprobs: List[Dict[int, float]] = []
         self.output_text = ""
         self.tokens_done = 0
+        self.skip_round = False
 
         self.logical_token_blocks: List[LogicalTokenBlock] = []
         # Initialize the logical token blocks with the prompt token ids.
