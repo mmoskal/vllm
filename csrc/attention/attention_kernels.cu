@@ -286,9 +286,7 @@ __global__ void single_query_cached_kv_attention_kernel(
           scalar_t* v_vec_ptr = reinterpret_cast<scalar_t*>(&v_vec);
 #pragma unroll
           for (int j = 0; j <= V_VEC_SIZE; j++) {
-            const bool mask = dynamic_mask[token_idx + j] == 0;
-            v_vec_ptr[j] = token_idx + j < context_len ? v_vec_ptr[j] : zero_value;
-            v_vec_ptr[j] = mask ? zero_value : v_vec_ptr[j];
+            v_vec_ptr[j] = token_idx + j >= context_len || dynamic_mask[token_idx + j] == 0 ? zero_value : v_vec_ptr[j];
           }
         }
         accs[i] += dot(logits_vec, v_vec);
