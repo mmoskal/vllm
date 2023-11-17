@@ -292,8 +292,9 @@ class Scheduler:
         # such as self.running, self.swapped, and self.waiting.
         scheduler_outputs = self._schedule()
 
-        SamplingParams.initiate_step(self, counter, scheduler_outputs)
-        self.freed_seq_ids = []
+        if scheduler_outputs.scheduled_seq_groups or self.freed_seq_ids:
+            SamplingParams.initiate_step(self, counter, scheduler_outputs)
+            self.freed_seq_ids = []
 
         # Create input data structures.
         seq_group_metadata_list: List[SequenceGroupMetadata] = []
