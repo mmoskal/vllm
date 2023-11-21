@@ -176,7 +176,7 @@ class SamplingParams:
                 f"logprobs={self.logprobs})")
     
     @staticmethod
-    def append_ff_tokens(seq_group):
+    def append_ff_tokens(seq_group, child_seqs):
         pass
 
     @staticmethod
@@ -190,3 +190,7 @@ class SamplingParams:
     @staticmethod
     def recv_attention_mask():
         return None
+
+    @staticmethod
+    def finish_sampling():
+        pass

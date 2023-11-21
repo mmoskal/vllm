@@ -362,7 +362,6 @@ class LLMEngine:
             parent_child_dict[sample.parent_seq_id].append(sample)
         # List of (child, parent)
         child_seqs: List[Tuple[Sequence, Sequence]] = []
-        SamplingParams.append_ff_tokens(seq_group)
 
         # Process the child samples for each parent sequence
         for parent in parent_seqs:
@@ -392,9 +391,9 @@ class LLMEngine:
                                    last_child_sample.logprobs)
             child_seqs.append((parent, parent))
 
+        SamplingParams.append_ff_tokens(seq_group, child_seqs)
+
         for seq, parent in child_seqs:
-            if parent.pending_ff_tokens:
-                seq.pending_ff_tokens = parent.pending_ff_tokens.copy()
             self._decode_sequence(seq)
             self._check_stop(seq, seq_group.sampling_params)
 
@@ -525,6 +524,8 @@ class LLMEngine:
         scheduled_seq_groups = scheduler_outputs.scheduled_seq_groups
         for seq_group, samples in zip(scheduled_seq_groups, output):
             self._process_sequence_group_samples(seq_group, samples, is_prompt=scheduler_outputs.prompt_run)
+
+        SamplingParams.finish_sampling()
 
         # Free the finished sequence groups.
         self.scheduler.free_finished_seq_groups()
