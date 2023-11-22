@@ -156,6 +156,25 @@ class Sequence:
                                                num_empty_slots])
             cursor += num_empty_slots
 
+    def backtrack(self, num_tokens: int) -> None:
+        """Backtrack the sequence by `num_tokens` tokens."""
+        if num_tokens == 0:
+            return
+        assert num_tokens <= self.get_output_len()
+        del self.output_logprobs[-num_tokens:]
+        del self.data.output_token_ids[-num_tokens:]
+        # TODO: ideally, we would know how much to backtrack...
+        self.read_offset = 0
+        self.prefix_offset = 0
+        while num_tokens > 0:
+            last_block = self.logical_token_blocks[-1]
+            if num_tokens >= last_block.num_tokens:
+                num_tokens -= last_block.num_tokens
+                del self.logical_token_blocks[-1]
+            else:
+                last_block.num_tokens -= num_tokens
+                num_tokens = 0
+
     def append_token_id(
         self,
         token_id: int,

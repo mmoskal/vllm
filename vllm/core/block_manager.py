@@ -113,6 +113,14 @@ class BlockSpaceManager:
         num_seqs = seq_group.num_seqs(status=SequenceStatus.RUNNING)
         return num_seqs <= num_free_gpu_blocks
 
+    def trim_physical_blocks(self, seq: Sequence) -> None:
+        block_table = self.block_tables[seq.seq_id]
+        logical_blocks = seq.logical_token_blocks
+        assert len(block_table) >= len(logical_blocks)
+        while len(block_table) > len(logical_blocks):
+            block = block_table.pop()
+            self.gpu_allocator.free(block)
+
     def append_slot(self, seq: Sequence) -> Optional[Tuple[int, int]]:
         """Allocate a physical slot for a new token."""
         logical_blocks = seq.logical_token_blocks
