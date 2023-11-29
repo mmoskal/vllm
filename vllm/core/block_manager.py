@@ -132,6 +132,8 @@ class BlockSpaceManager:
             block = self.gpu_allocator.allocate()
             block_table.append(block)
             return None
+        
+        assert len(block_table) == len(logical_blocks)
 
         # We want to append the token to the last physical block.
         last_block = block_table[-1]

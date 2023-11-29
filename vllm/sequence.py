@@ -163,9 +163,7 @@ class Sequence:
         assert num_tokens <= self.get_output_len()
         del self.output_logprobs[-num_tokens:]
         del self.data.output_token_ids[-num_tokens:]
-        # TODO: ideally, we would know how much to backtrack...
-        self.read_offset = 0
-        self.prefix_offset = 0
+        self.tokens = None # resets decoding
         while num_tokens > 0:
             last_block = self.logical_token_blocks[-1]
             if num_tokens >= last_block.num_tokens:

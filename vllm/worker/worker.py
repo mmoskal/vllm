@@ -181,6 +181,8 @@ class Worker:
                 if seq_data.num_pending_ff_tokens > 0:
                     any_ff = True
                     pref_len = len(prompt_tokens) - seq_data.num_pending_ff_tokens 
+                    # print("pref", pref_len, seq_data.get_token_ids()[0:pref_len])
+                    # print("suff", seq_data.get_len(), seq_data.get_token_ids()[pref_len:])
                     input_positions.extend(range(pref_len, len(prompt_tokens)))
                     prompt_tokens = prompt_tokens[pref_len:]
                     seq_data.num_pending_ff_tokens = 0
