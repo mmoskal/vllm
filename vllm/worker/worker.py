@@ -283,6 +283,7 @@ class Worker:
         # note that attn_shape[0] == 0 for prompt runs; numel() == 0 then as well
         # we only support attn mask for generation runs right now
         assert attn_mask.shape[0] == attn_shape[0]
+        attn_mask = attn_mask[:, :max_context_len]
         assert attn_mask.numel() == attn_shape[0] * attn_shape[1]
         attn_mask = attn_mask.cuda()
 
