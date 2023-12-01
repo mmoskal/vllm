@@ -338,14 +338,33 @@ class Worker:
         input_tokens, input_positions, input_metadata = self._prepare_inputs(
             seq_group_metadata_list)
 
-        # Execute the model.
-        output = self.model(
-            input_ids=input_tokens,
-            positions=input_positions,
-            kv_caches=self.gpu_cache,
-            input_metadata=input_metadata,
-            cache_events=cache_events,
-        )
+        if True:
+             # Execute the model.
+            output = self.model(
+                input_ids=input_tokens,
+                positions=input_positions,
+                kv_caches=self.gpu_cache,
+                input_metadata=input_metadata,
+                cache_events=cache_events,
+            )
+        else:
+            from torch.profiler import profile, record_function, ProfilerActivity
+
+            with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
+                        #with_stack=True,
+                        #experimental_config=torch._C._profiler._ExperimentalConfig(verbose=True)
+                        ) as prof:
+                    # Execute the model.
+                    output = self.model(
+                        input_ids=input_tokens,
+                        positions=input_positions,
+                        kv_caches=self.gpu_cache,
+                        input_metadata=input_metadata,
+                        cache_events=cache_events,
+                    )
+            #print(prof.key_averages(group_by_stack_n=5).table(sort_by="cuda_time_total", row_limit=20))
+            print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+
         return output
 
 
