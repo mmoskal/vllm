@@ -181,21 +181,14 @@ class Scheduler:
             for seq_group in self.running:
                 found_some = False
                 for seq in seq_group.get_seqs(SequenceStatus.RUNNING):
-                    if not seq.pending_ff_tokens:
+                    num_toks = seq.data.num_pending_ff_tokens
+                    if not num_toks:
                         continue
                     found_some = True
 
-                    # the first token was appended in sampling already
-                    num_toks = len(seq.pending_ff_tokens) + 1
-                    self._append_slot_to_seq(seq, blocks_to_copy)
-                    # append the rest of token
-                    for t in seq.pending_ff_tokens:
-                        # probability of the token is 1.0, so logprob is 0.0
-                        seq.append_token_id(t, {t: 0.0})
+                    for _ in range(num_toks):
                         self._append_slot_to_seq(seq, blocks_to_copy)
 
-                    seq.pending_ff_tokens = []
-                    seq.data.num_pending_ff_tokens = num_toks
                     num_curr_seqs += 1
                     num_batched_tokens += num_toks
 
@@ -358,7 +351,7 @@ class Scheduler:
         blocks_to_copy: Dict[int, List[int]],
     ) -> None:
         for seq in seq_group.get_seqs(status=SequenceStatus.RUNNING):
-            assert not seq.pending_ff_tokens
+            assert not seq.data.num_pending_ff_tokens
             self._append_slot_to_seq(seq, blocks_to_copy)
 
     def _preempt(

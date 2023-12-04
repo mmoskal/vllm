@@ -130,9 +130,6 @@ class Sequence:
         # Input + output tokens
         self.tokens: Optional[List[str]] = None
 
-        # tokens to be appended in next fast-forward operation
-        self.pending_ff_tokens: List[int] = []
-
     def _append_logical_block(self) -> None:
         block = LogicalTokenBlock(
             block_number=len(self.logical_token_blocks),

@@ -176,7 +176,7 @@ class SamplingParams:
                 f"logprobs={self.logprobs})")
     
     @staticmethod
-    def append_ff_tokens(block_manager, seq_group, child_seqs):
+    def append_ff_tokens(llm_engine, seq_group, child_seqs):
         pass
 
     @staticmethod

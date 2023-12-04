@@ -391,7 +391,7 @@ class LLMEngine:
                                    last_child_sample.logprobs)
             child_seqs.append((parent, parent))
 
-        SamplingParams.append_ff_tokens(self.scheduler.block_manager, seq_group, child_seqs)
+        SamplingParams.append_ff_tokens(self, seq_group, child_seqs)
 
         for seq, parent in child_seqs:
             self._decode_sequence(seq)
