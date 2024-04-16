@@ -26,6 +26,9 @@ class AiciRunnerCompletion(OpenAIServing):
     # from .instantiate_async() are properly sent to the user
     async def prep_completion(self, request: RunRequest):
         request_id = f"run-{random_uuid()}"
+        # if there's no start symbol, add a space, otherwise Engine gets stuck
+        if not request.prompt and not self.empty_prompt:
+            request.prompt = " "
         prompt = request.prompt
         inst_res = await self.aici_runner.instantiate_async(
             request_id, prompt, request.controller, request.controller_arg)
