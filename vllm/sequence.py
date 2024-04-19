@@ -290,25 +290,39 @@ class Sequence:
     def splice_tokens(self, backtrack: int, token_ids: List[int]):
         assert self.backtrack == 0
 
+        data = self.data
+
         if not token_ids:
             # we need at least one token in forward step,
             # so we pretend we're backtracking one token more
-            backtrack += 1
-            assert backtrack <= self.get_output_len(), \
-                "can't backtrack into prompt yet"
             # and repeat the token that was there
-            token_ids = [self.data.output_token_ids[-backtrack]]
             # otherwise, the _num_comptued_tokens gets out of sync
+            backtrack += 1
+            if backtrack <= len(data.output_token_ids):
+                token_ids = [data.output_token_ids[-backtrack]]
+            else:
+                off = backtrack - len(data.output_token_ids)
+                if off <= len(data.prompt_token_ids):
+                    token_ids = [data.prompt_token_ids[-off]]
+                else:
+                    token_ids = [1]
 
+        backtrack = min(backtrack, data.get_len())
         self.backtrack = backtrack
+
         if backtrack > 0:
-            assert backtrack <= self.get_output_len(), \
-                "can't backtrack into prompt yet"
-            del self.data.output_token_ids[-backtrack:]
+            prompt_backtrack = 0
+            output_len = len(data.output_token_ids)
+            if backtrack > output_len:
+                prompt_backtrack = backtrack - output_len
+                backtrack = output_len
+            del data.output_token_ids[-backtrack:]
             del self.output_logprobs[-backtrack:]
-            self.data._num_computed_tokens = min(
-                self.data._num_computed_tokens,
-                len(self.data.output_token_ids))
+            data._num_computed_tokens = min(data._num_computed_tokens,
+                                            len(data.output_token_ids))
+            if prompt_backtrack > 0:
+                assert not data.output_token_ids
+                del data.prompt_token_ids[-prompt_backtrack:]
             needed_blocks = \
                 (self.get_len() + self.block_size - 1) // self.block_size
             if len(self.logical_token_blocks) > needed_blocks:
@@ -319,10 +333,11 @@ class Sequence:
                 if last_num_tokens == 0:
                     last_num_tokens = self.block_size
                 last_block.num_tokens = last_num_tokens
+
         for t in token_ids:
             self.append_token_id(t, {t: Logprob(logprob=0.0)})
-        if self.data.get_num_uncomputed_tokens() > 1:
-            self.data._stage = SequenceStage.PREFILL
+        if data.get_num_uncomputed_tokens() > 1:
+            data._stage = SequenceStage.PREFILL
 
     def get_len(self) -> int:
         return self.data.get_len()
