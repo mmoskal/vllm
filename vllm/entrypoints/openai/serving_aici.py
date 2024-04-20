@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Union
 
 from fastapi import Request
 from pyaici.comms import AiciRunner
@@ -19,6 +19,11 @@ class AiciRunnerCompletion(OpenAIServing):
         super().__init__(engine=engine, served_model=served_model)
         self.aici_runner = aici_runner
         self.empty_prompt: List[int] = self.tokenizer("").input_ids
+        if not self.empty_prompt:
+            # if there's no start symbol, add a space, otherwise Engine
+            # gets stuck on empty prompt
+            self.empty_prompt = self.tokenizer(" ").input_ids
+            assert self.empty_prompt
         # TODO: this is a hack:
         engine.engine.scheduler.aici_runner = aici_runner
 
@@ -26,36 +31,41 @@ class AiciRunnerCompletion(OpenAIServing):
     # from .instantiate_async() are properly sent to the user
     async def prep_completion(self, request: RunRequest):
         request_id = f"run-{random_uuid()}"
-        # if there's no start symbol, add a space, otherwise Engine gets stuck
-        if not request.prompt and not self.empty_prompt:
-            request.prompt = " "
-        prompt = request.prompt
+        prompt = self.tokenizer(request.prompt).input_ids
         inst_res = await self.aici_runner.instantiate_async(
             request_id, prompt, request.controller, request.controller_arg)
         return request_id, inst_res
 
-    async def create_completion(self, request_id: str, inst_res: Optional[dict],
+    async def create_completion(self, request_id: str, inst_res: Union[dict,
+                                                                       list],
                                 request: RunRequest, raw_request: Request):
         """Completion API for AICI controllers.
 
         See https://github.com/microsoft/aici/blob/main/docs/REST.md
         """
         runner = self.aici_runner
-        prompt = request.prompt
         yield runner.data_line(
             runner.initial_json(request_id, self.served_model))
 
-        if inst_res is not None:
+        if isinstance(inst_res, dict):
             # error case
             yield runner.data_line(inst_res)
             yield runner.final_data()
             return
 
+        # Engine doesn't like prompts with no tokens
+        # self.empty_prompt is either start symbol or a single space
+        if len(inst_res) == 0:
+            inst_res = self.empty_prompt
+
         sampling_params = request.to_sampling_params()
-        generator = self.engine.generate(prompt, sampling_params, request_id)
+        generator = self.engine.generate(prompt=None,
+                                         sampling_params=sampling_params,
+                                         request_id=request_id,
+                                         prompt_token_ids=inst_res)
 
         previous_texts = []
-        ff_tokens = len(prompt)
+        ff_tokens = len(inst_res)
         sampled_tokens = 0
 
         async for res in generator:
