@@ -19,6 +19,7 @@ from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (ChatCompletionRequest,
+                                              ChatCompletionResponse,
                                               CompletionRequest, ErrorResponse,
                                               RunRequest, SetTagsRequest)
 from vllm.entrypoints.openai.serving_aici import AiciRunnerCompletion
@@ -29,9 +30,9 @@ from vllm.usage.usage_lib import UsageContext
 
 TIMEOUT_KEEP_ALIVE = 5  # seconds
 
-openai_serving_chat: OpenAIServingChat = None
-openai_serving_completion: OpenAIServingCompletion = None
-pyaici_runner_completion: AiciRunnerCompletion = None
+openai_serving_chat: OpenAIServingChat
+openai_serving_completion: OpenAIServingCompletion
+pyaici_runner_completion: AiciRunnerCompletion
 
 logger = init_logger(__name__)
 
@@ -101,6 +102,7 @@ async def create_chat_completion(request: ChatCompletionRequest,
         return StreamingResponse(content=generator,
                                  media_type="text/event-stream")
     else:
+        assert isinstance(generator, ChatCompletionResponse)
         return JSONResponse(content=generator.model_dump())
 
 
@@ -139,8 +141,8 @@ async def aici_run(request: RunRequest, raw_request: Request):
         return _no_aici()
     request_id, inst_res = \
         await pyaici_runner_completion.prep_completion(request)
-    generator = pyaici_runner_completion.create_completion(request_id, inst_res,
-        request, raw_request)
+    generator = pyaici_runner_completion.create_completion(
+        request_id, inst_res, request, raw_request)
     return StreamingResponse(content=generator, media_type="text/event-stream")
 
 
@@ -201,9 +203,9 @@ if __name__ == "__main__":
     logger.info(f"args: {args}")
 
     if args.served_model_name is not None:
-        served_model = args.served_model_name
+        served_model_names = args.served_model_name
     else:
-        served_model = args.model
+        served_model_names = [args.model]
     engine_args = AsyncEngineArgs.from_cli_args(args)
     engine = AsyncLLMEngine.from_engine_args(
         engine_args, usage_context=UsageContext.OPENAI_API_SERVER)
@@ -212,14 +214,15 @@ if __name__ == "__main__":
         dtype = str(config.dtype).replace("torch.", "").replace("float", "f")
         pyaici_runner = pyaici.runner_from_cli(args, dtype=dtype)
         pyaici_runner.fast_api()
+        assert len(served_model_names) == 1
         pyaici_runner_completion = AiciRunnerCompletion(
-            pyaici_runner, engine, served_model)
-    openai_serving_chat = OpenAIServingChat(engine, served_model,
+            pyaici_runner, engine, served_model_names[0])
+    openai_serving_chat = OpenAIServingChat(engine, served_model_names,
                                             args.response_role,
                                             args.lora_modules,
                                             args.chat_template)
     openai_serving_completion = OpenAIServingCompletion(
-        engine, served_model, args.lora_modules)
+        engine, served_model_names, args.lora_modules)
 
     app.root_path = args.root_path
     uvicorn.run(app,
