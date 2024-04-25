@@ -50,7 +50,6 @@ if triton.__version__ >= "2.1.0":
         BLOCK_DMODEL: tl.constexpr,  # head size
         BLOCK_DMODEL_PADDED: tl.constexpr,  # head size padded to a power of 2
         BLOCK_N: tl.constexpr,
-        BLOCK_DMODEL_USED: tl.constexpr,
     ):
         cur_batch = tl.program_id(0)
         cur_head = tl.program_id(1)
@@ -752,6 +751,5 @@ if triton.__version__ >= "2.1.0":
             BLOCK_N=BLOCK,
             num_warps=num_warps,
             num_stages=1,
-            BLOCK_DMODEL_USED=Lk,
         )
         return
