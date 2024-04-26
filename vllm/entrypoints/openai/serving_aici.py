@@ -15,8 +15,10 @@ from .protocol import RunRequest
 class AiciRunnerCompletion(OpenAIServing):
 
     def __init__(self, aici_runner: AiciRunner, engine: AsyncLLMEngine,
-                 served_model: str):
-        super().__init__(engine=engine, served_model=served_model)
+                 served_model_names: List[str]):
+        super().__init__(engine=engine,
+                         served_model_names=served_model_names,
+                         lora_modules=None)
         self.aici_runner = aici_runner
         self.empty_prompt: List[int] = self.tokenizer("").input_ids
         if not self.empty_prompt:
@@ -45,7 +47,7 @@ class AiciRunnerCompletion(OpenAIServing):
         """
         runner = self.aici_runner
         yield runner.data_line(
-            runner.initial_json(request_id, self.served_model))
+            runner.initial_json(request_id, self.served_model_names[0]))
 
         if isinstance(inst_res, dict):
             # error case
@@ -59,6 +61,7 @@ class AiciRunnerCompletion(OpenAIServing):
             inst_res = self.empty_prompt
 
         sampling_params = request.to_sampling_params()
+        sampling_params.stop_token_ids = []
         generator = self.engine.generate(prompt=None,
                                          sampling_params=sampling_params,
                                          request_id=request_id,

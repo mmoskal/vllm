@@ -275,6 +275,9 @@ class SamplingParams:
     def update_from_generation_config(
             self, generation_config: Dict[str, Any]) -> None:
         """Update if there are non-default values from generation_config"""
+        # For AICI, we want the controller to control stopping.
+        if self.has_aici:
+            return
         # Update eos_token_id for generation
         if eos_ids := generation_config.get("eos_token_id"):
             # it can be either int or list of int

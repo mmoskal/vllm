@@ -135,6 +135,7 @@ class SingleStepOutputProcessor(SequenceGroupOutputProcessor):
                                                   seq_group.sampling_params)
             if seq.seq_id in to_stop:
                 seq.status = SequenceStatus.FINISHED_STOPPED
+                seq.stop_reason = "<AICI>"
 
         # Non-beam search case
         if not seq_group.sampling_params.use_beam_search:
