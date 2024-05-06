@@ -173,6 +173,9 @@ def _apply_aici_logit_bias(
                     mask = r.branches[0].mask
                     if mask is not None:
                         logits[logits_row_idx] += bias[mask, 0:logits.shape[1]]
+                    temp = r.branches[0].temperature
+                    if temp is not None:
+                        sampling_params.temperature = temp
                 logits_row_idx += 1
         else:
             logits_row_idx += len(seq_ids)
