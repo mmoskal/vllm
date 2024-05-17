@@ -168,7 +168,7 @@ def _apply_aici_logit_bias(
 
     logits_row_idx = 0
     for sg in sampling_metadata.seq_groups:
-        if sg.sampling_params.has_aici:
+        if sg.sampling_params.has_aici and sg.do_sample:
             for id in sg.seq_ids:
                 r = mid_results.get(id)
                 if r and len(r.branches) >= 1:
