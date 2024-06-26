@@ -180,7 +180,7 @@ def _apply_aici_logit_bias(
                         logits[logits_row_idx] += bias[mask, 0:logits.shape[1]]
                     temp = r.branches[0].temperature
                     if temp is not None:
-                        sg.sampling_params.temperature = temp
+                        sg.sampling_params.temperature = max(temp, 1.5e-5)
                 logits_row_idx += 1
         else:
             logits_row_idx += len(sg.seq_ids)

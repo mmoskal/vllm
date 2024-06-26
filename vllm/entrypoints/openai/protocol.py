@@ -374,7 +374,7 @@ class RunRequest(BaseModel):
 
     def to_sampling_params(self):
         r = SamplingParams(
-            temperature=self.temperature,
+            temperature=max(self.temperature, 1.5e-5),
             top_p=self.top_p,
             top_k=self.top_k,
             max_tokens=self.max_tokens,
