@@ -359,6 +359,7 @@ class LLMEngine:
         arrival_time: Optional[float] = None,
         lora_request: Optional[LoRARequest] = None,
         multi_modal_data: Optional[MultiModalData] = None,
+        **kwargs
     ) -> None:
         """Add a request to the engine's request pool.
 
@@ -430,7 +431,7 @@ class LLMEngine:
             logger.warning("Use None for EOS token id because tokenizer is "
                            "not initialized")
         seq = Sequence(seq_id, prompt, prompt_token_ids, block_size,
-                       eos_token_id, lora_request)
+                       eos_token_id, lora_request, **kwargs)
 
         # Defensive copy of SamplingParams, which are used by the sampler,
         # this doesn't deep-copy LogitsProcessor objects
@@ -444,7 +445,7 @@ class LLMEngine:
 
         # Create the sequence group.
         seq_group = SequenceGroup(request_id, [seq], sampling_params,
-                                  arrival_time, lora_request, multi_modal_data)
+                                  arrival_time, lora_request, multi_modal_data, **kwargs)
 
         # Add the sequence group to the scheduler.
         self.scheduler.add_seq_group(seq_group)

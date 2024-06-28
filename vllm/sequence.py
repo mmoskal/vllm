@@ -44,6 +44,7 @@ class SequenceStatus(enum.Enum):
     FINISHED_LENGTH_CAPPED = enum.auto()
     FINISHED_ABORTED = enum.auto()
     FINISHED_IGNORED = enum.auto()
+    ZOMBIE = enum.auto() # Occupy the memory but don't do anything. Serve as a lock to the kv cache.
 
     @staticmethod
     def is_finished(status: "SequenceStatus") -> bool:
@@ -211,7 +212,10 @@ class Sequence:
         block_size: int,
         eos_token_id: Optional[int] = None,
         lora_request: Optional[LoRARequest] = None,
+        **kwargs,
     ) -> None:
+        self.kwargs = kwargs
+
         self.seq_id = seq_id
         self.prompt = prompt
         self.block_size = block_size
@@ -466,7 +470,9 @@ class SequenceGroup:
         arrival_time: float,
         lora_request: Optional[LoRARequest] = None,
         multi_modal_data: Optional[MultiModalData] = None,
+        **kwargs
     ) -> None:
+        self.kwargs = kwargs
         self.request_id = request_id
         self.seqs_dict = {seq.seq_id: seq for seq in seqs}
         self.sampling_params = sampling_params

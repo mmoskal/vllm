@@ -1,10 +1,13 @@
 import asyncio
 import importlib
 import inspect
+import json
+import random
 import re
 from contextlib import asynccontextmanager
 from http import HTTPStatus
-from typing import Optional, Set
+from typing import Dict, Optional, Set
+import typing
 
 import fastapi
 import pyaici
@@ -29,7 +32,10 @@ from vllm.entrypoints.openai.serving_aici import AiciRunnerCompletion
 from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
 from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
 from vllm.logger import init_logger
+from vllm.sampling_params import SamplingParams
+from vllm.sequence import Sequence
 from vllm.usage.usage_lib import UsageContext
+from vllm.utils import random_uuid
 
 TIMEOUT_KEEP_ALIVE = 5  # seconds
 
@@ -174,6 +180,127 @@ async def aici_get_tags():
     return JSONResponse(r)
 
 
+
+# TODO(refactor): move this to a separate file
+# TODO(refactor): make engine separate of this control path, ideally through a hook
+
+class Session:
+    def __init__(self, session_id: str, engine: 'AsyncLLMEngine'):
+        self.session_id = session_id
+        # TODO: should this hold a SequenceGroup object or a Sequence object?
+        self._name2seq: Dict[str, Sequence] = {} # name -> Sequence object
+        self.engine: 'AsyncLLMEngine' = engine
+        pass
+
+    async def create_prefix(self, name: str, prefix: str, following: str, sampling_params: 'SamplingParams', **kwargs):
+        # Submit a sequence to run, byt at the same time fork the sequence to maintain the ref count.
+        # TODO: Normally we should call the OpenAI API logic (completion, chat completion) logic to do the request
+        #   We are just hacking out here.
+        engine = self.engine
+        # TODO: Add logic to fork from a sequence.
+        request_id = random_uuid()
+
+        def register_seq_handler(seq: Sequence, *args, **kwargs):
+            print("Registering sequence")
+            if typing.TYPE_CHECKING:
+                from vllm.core.scheduler import Scheduler
+            scheduler: 'Scheduler' = kwargs['scheduler']
+            new_seq_id = random.randint(1, 100000) + 1000000 # TODO: FIXME
+            new_seq = seq.fork(new_seq_id)
+            scheduler.fork_seq(seq, new_seq) # where the sequence count actually increase
+            self._name2seq[name] = new_seq # now the sequence and its memory is under our control
+            pass
+
+        it = engine.generate(prefix, sampling_params, request_id, register_seq_handler=register_seq_handler,**kwargs)
+        # async iterate over it
+        async for out in it:
+            print(out)
+        
+        pass
+
+    def delete_prefix(self, name: str):
+        if name not in self._name2seq:
+            raise KeyError(f"Sequence {name} not found")
+        seq = self._name2seq.pop(name)
+        # TODO: Free the sequence
+        # seq.free() # likely, but could be more complicated than that.
+        pass
+
+    
+
+class SessionManager():
+    def __init__(self):
+        self.sessions = {}
+        self.engine = None
+
+    def setup(self, engine):
+        self.engine = engine
+
+    def create_session(self):
+        import uuid 
+        session_id = str(uuid.uuid4())
+        session = Session(session_id=session_id, engine=self.engine)
+        self.sessions[session_id] = session
+        return session
+    
+    def delete_session(self, session_id: str):
+        pass# TODO: Release the sequences, hence the ref count
+
+    def get_session(self, session_id: str):
+        return self.sessions.get(session_id)
+    
+
+
+session_manager = SessionManager()
+
+
+@app.websocket("/v1/session")
+async def session_endpoint(websocket: fastapi.WebSocket):
+    await websocket.accept()
+    session = session_manager.create_session()
+    try:
+        while True:
+            # TODO: Make this truly async?
+            _data = await websocket.receive_text()
+            actions = json.loads(_data)
+            for data in actions:
+                # TODO: Make it a struct
+                if data["type"] == "query":
+                    gpu_kv_cache = session.engine.get_gpu_kv_cache()
+                    await websocket.send_text(json.dumps({"type": "query", "status": "success", "gpu_kv_cache": gpu_kv_cache}))
+                    pass
+                if data["type"] == "create_prefix":
+                    _sampling_params = data["sampling_params"]
+                    # TODO: Can max_token be 0?
+                    sampling_params = SamplingParams(1, max_tokens=1, )
+                    await session.create_prefix(
+                        data["name"],
+                        data["prefix"],
+                        data["following"],
+                        sampling_params,
+                        **data.get("kwargs", {})
+                    )
+                    # send back an echo
+                    await websocket.send_text(json.dumps({"type": "create_prefix", "status": "success"}))
+                    pass
+                if data["type"] == "delete_prefix":
+                    pass
+            pass
+    except fastapi.websockets.WebSocketDisconnect:
+        pass
+    finally:
+        session_manager.delete_session(session.session_id)
+    pass
+
+
+async def debug_session():
+    session = session_manager.create_session()
+    sampling_params = SamplingParams(1, max_tokens=1, )
+    await session.create_prefix(
+        "myseq", "hello world something something wonderful weather isn't it today haha",
+        "",
+        sampling_params,)
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -249,6 +376,10 @@ if __name__ == "__main__":
                                             args.chat_template)
     openai_serving_completion = OpenAIServingCompletion(
         engine, model_config, served_model_names, args.lora_modules)
+
+    # TODO: Remove this after debugging
+    session_manager.setup(engine)
+    # asyncio.run(debug_session())
 
     app.root_path = args.root_path
     uvicorn.run(app,

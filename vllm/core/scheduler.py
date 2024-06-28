@@ -1016,6 +1016,9 @@ class Scheduler:
         """Free a sequence from a block table."""
         if seq.has_aici:
             self.aici_runner.seq_freed(seq.seq_id)
+        if 'register_seq_handler' in seq.kwargs:
+            seq.kwargs.get('register_seq_handler')(seq, scheduler=self)
+            pass
         self.block_manager.free(seq)
 
     def free_finished_seq_groups(self) -> None:
