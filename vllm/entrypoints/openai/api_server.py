@@ -200,18 +200,67 @@ class Session:
         # TODO: Add logic to fork from a sequence.
         request_id = random_uuid()
 
+        # seq_id, prompt, prompt_token_ids, block_size,
+        # eos_token_id, lora_request, **kwargs
+
+
+        # def fork_from_existing_seq_handler(*args, following: str=None, prefix: str=None, **kwargs):
+        def fork_from_existing_seq_handler(seq_id, prompt, prompt_token_ids, block_size, 
+                                           eos_token_id, lora_request, **kwargs):
+            """Fork a sequence from an existing sequence"""
+            # Get the existing sequence from the group
+            from vllm.sequence import SequenceStatus, SequenceStage, SequenceData
+            following = kwargs.get("following", "")
+            if following:
+                seq = self._name2seq[following]  
+                # TODO: Probably abstract another function `Sequence.fork_extend()`              
+                new_seq = seq.fork(seq_id)
+                # TODO: (1) block manager append slot with backtrack = 1, and then 
+                # (2) revert the tokens inside the Sequence object 
+                # Sequence.backtrack()
+                # new seq need to backtrack the memory to only the prompt tokens?
+
+                new_seq.prompt += prompt
+                new_seq.tokens = new_seq.tokens[:new_seq.prefix_offset]
+                new_seq.tokens += prompt_token_ids
+                old_prompt_offset = new_seq.prefix_offset
+                # Clear the blocks after the offset
+                
+                new_seq.output_text = "" # Should we trim all output?
+                new_seq.output_logprobs = []
+                new_seq.status = SequenceStatus.WAITING
+                new_seq.stop_reason = None 
+                new_seq._stage = SequenceStage.PREFILL
+                new_seq.data = SequenceData(new_seq.prompt_token_ids)
+                new_seq.data._num_computed_tokens = seq.prompt_offset
+                new_seq.data.output_token_ids = []
+                new_seq.read_offset = new_seq.prompt_offset
+                
+                # TODO: Check new_seq does not have garbage blocks included.
+                #   Last token should not have a block in the block space.
+                return new_seq
+            else:
+                seq = Sequence(seq_id, prompt, prompt_token_ids, block_size, 
+                               eos_token_id, lora_request, **kwargs)
+                return seq
+            
         def register_seq_handler(seq: Sequence, *args, **kwargs):
+            """Register a sequence to the session (when it finishes prefill)"""
             print("Registering sequence")
             if typing.TYPE_CHECKING:
                 from vllm.core.scheduler import Scheduler
             scheduler: 'Scheduler' = kwargs['scheduler']
-            new_seq_id = random.randint(1, 100000) + 1000000 # TODO: FIXME
+            new_seq_id = random.randint(1, 1000000) + 1000000 # TODO: FIXME
             new_seq = seq.fork(new_seq_id)
             scheduler.fork_seq(seq, new_seq) # where the sequence count actually increase
             self._name2seq[name] = new_seq # now the sequence and its memory is under our control
             pass
 
-        it = engine.generate(prefix, sampling_params, request_id, register_seq_handler=register_seq_handler,**kwargs)
+        it = engine.generate(prefix, sampling_params, request_id, 
+                             following=following,
+                             fork_from_existing_seq_handler=fork_from_existing_seq_handler, 
+                             register_seq_handler=register_seq_handler,
+                             **kwargs)
         # async iterate over it
         async for out in it:
             print(out)

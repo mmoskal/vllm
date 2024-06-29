@@ -430,8 +430,14 @@ class LLMEngine:
         else:
             logger.warning("Use None for EOS token id because tokenizer is "
                            "not initialized")
-        seq = Sequence(seq_id, prompt, prompt_token_ids, block_size,
-                       eos_token_id, lora_request, **kwargs)
+        if 'fork_from_existing_seq_handler' in kwargs:
+            seq = kwargs['fork_from_existing_seq_handler'](
+                seq_id, prompt, prompt_token_ids, block_size,
+                eos_token_id, lora_request, **kwargs
+            )
+        else:
+            seq = Sequence(seq_id, prompt, prompt_token_ids, block_size,
+                            eos_token_id, lora_request, **kwargs)
 
         # Defensive copy of SamplingParams, which are used by the sampler,
         # this doesn't deep-copy LogitsProcessor objects
