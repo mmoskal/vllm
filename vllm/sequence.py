@@ -403,6 +403,11 @@ class Sequence:
         new_seq.seq_id = new_seq_id
         return new_seq
 
+    def fork_2(self, new_seq_id: int) -> "Sequence":
+        new_seq = self.fork(new_seq_id)
+        raise NotImplementedError("fork_2 is not implemented.")
+        pass
+
     def get_num_new_tokens(self) -> int:
         """Get the number of new tokens to be computed.
 

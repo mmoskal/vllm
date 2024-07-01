@@ -197,45 +197,29 @@ class Session:
         # TODO: Normally we should call the OpenAI API logic (completion, chat completion) logic to do the request
         #   We are just hacking out here.
         engine = self.engine
-        # TODO: Add logic to fork from a sequence.
         request_id = random_uuid()
 
-        # seq_id, prompt, prompt_token_ids, block_size,
-        # eos_token_id, lora_request, **kwargs
-
-
-        # def fork_from_existing_seq_handler(*args, following: str=None, prefix: str=None, **kwargs):
         def fork_from_existing_seq_handler(seq_id, prompt, prompt_token_ids, block_size, 
                                            eos_token_id, lora_request, **kwargs):
             """Fork a sequence from an existing sequence"""
             # Get the existing sequence from the group
-            from vllm.sequence import SequenceStatus, SequenceStage, SequenceData
+            from vllm.sequence import SequenceStatus
             following = kwargs.get("following", "")
             if following:
                 seq = self._name2seq[following]  
                 # TODO: Probably abstract another function `Sequence.fork_extend()`              
                 new_seq = seq.fork(seq_id)
-                # TODO: (1) block manager append slot with backtrack = 1, and then 
+                # TODO: 
+                # (1) block manager append slot with backtrack = 1, and then 
                 # (2) revert the tokens inside the Sequence object 
                 # Sequence.backtrack()
                 # new seq need to backtrack the memory to only the prompt tokens?
-
                 new_seq.prompt += prompt
-                new_seq.tokens = new_seq.tokens[:new_seq.prefix_offset]
-                new_seq.tokens += prompt_token_ids
-                old_prompt_offset = new_seq.prefix_offset
-                # Clear the blocks after the offset
-                
-                new_seq.output_text = "" # Should we trim all output?
-                new_seq.output_logprobs = []
+
+                # TODO: There is a bug in setting the output computed tokens and the stop criteria
+                new_seq.splice_tokens(1, prompt_token_ids)
                 new_seq.status = SequenceStatus.WAITING
-                new_seq.stop_reason = None 
-                new_seq._stage = SequenceStage.PREFILL
-                new_seq.data = SequenceData(new_seq.prompt_token_ids)
-                new_seq.data._num_computed_tokens = seq.prompt_offset
-                new_seq.data.output_token_ids = []
-                new_seq.read_offset = new_seq.prompt_offset
-                
+
                 # TODO: Check new_seq does not have garbage blocks included.
                 #   Last token should not have a block in the block space.
                 return new_seq
@@ -254,7 +238,9 @@ class Session:
             new_seq = seq.fork(new_seq_id)
             scheduler.fork_seq(seq, new_seq) # where the sequence count actually increase
             self._name2seq[name] = new_seq # now the sequence and its memory is under our control
-            pass
+
+            print(f"Registered sequence {name} with id {new_seq_id}. Prefix: {new_seq.prompt}")
+            return 
 
         it = engine.generate(prefix, sampling_params, request_id, 
                              following=following,
@@ -265,6 +251,7 @@ class Session:
         async for out in it:
             print(out)
         
+        print(f"Registered sequence {name} with id {request_id}. Prefix: {prefix}")
         pass
 
     def delete_prefix(self, name: str):
@@ -272,7 +259,17 @@ class Session:
             raise KeyError(f"Sequence {name} not found")
         seq = self._name2seq.pop(name)
         # TODO: Free the sequence
+        scheduler = self.engine.engine.scheduler
+        scheduler.block_manager.free(seq)
         # seq.free() # likely, but could be more complicated than that.
+        print(f"Deleted sequence {name}")
+        pass
+
+    def cleanup(self):
+        keys = list(self._name2seq.keys())
+        for name in keys:
+            self.delete_prefix(name)
+            print(f"Cleaned up all sequences in session.")
         pass
 
     
@@ -293,7 +290,9 @@ class SessionManager():
         return session
     
     def delete_session(self, session_id: str):
-        pass# TODO: Release the sequences, hence the ref count
+        session = self.sessions.pop(session_id)
+        session.cleanup()
+        return session
 
     def get_session(self, session_id: str):
         return self.sessions.get(session_id)
