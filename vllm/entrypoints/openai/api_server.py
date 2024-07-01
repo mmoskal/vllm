@@ -10,7 +10,6 @@ from typing import Dict, Optional, Set
 import typing
 
 import fastapi
-import pyaici
 import uvicorn
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
@@ -409,6 +408,7 @@ if __name__ == "__main__":
         model_config = asyncio.run(engine.get_model_config())
 
     if args.aici_rt:
+        import pyaici
         config = asyncio.run(engine.get_model_config())
         dtype = str(config.dtype).replace("torch.", "").replace("float", "f")
         pyaici_runner = pyaici.runner_from_cli(args, dtype=dtype)
