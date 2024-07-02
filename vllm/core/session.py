@@ -199,6 +199,9 @@ class Session:
         self.user_requests[name] = request
         self._incr_ref_count(name)
 
+
+        # TODO(Refactor): Poll all of these ready functions inside the
+        #  Session instead of hacking in the add request function
         def aici_session__is_request_ready(**kwargs):
             assert following in self.user_requests
             return self.user_requests[following].is_finished()
@@ -246,6 +249,7 @@ class Session:
                 10000000)  # TODO: Hack to avoid conflict of hash
             self.scheduler.fork_seq(parent, child)
             request.sequence = child  # Persist the mem reference using the sequence.
+            # TODO: backtrack here
             return
 
         stream = await self.engine.add_request(
