@@ -12,6 +12,7 @@ from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig, LoadConfig,
                          VisionLanguageConfig)
 from vllm.core.scheduler import (ScheduledSequenceGroup, Scheduler,
                                  SchedulerOutputs)
+from vllm.core.session import SessionManager
 from vllm.engine.arg_utils import EngineArgs
 from vllm.engine.metrics import (LoggingStatLogger, PrometheusStatLogger,
                                  StatLoggerBase, Stats)
@@ -474,22 +475,32 @@ class LLMEngine:
 
         return self.tokenizer.get_lora_tokenizer(lora_request).eos_token_id
 
-    def _add_processed_request(
-        self,
-        request_id: str,
-        processed_inputs: LLMInputs,
-        params: Union[SamplingParams, PoolingParams],
-        arrival_time: float,
-        lora_request: Optional[LoRARequest],
-        trace_headers: Optional[Dict[str, str]] = None,
-    ) -> None:
+    def _add_processed_request(self,
+                               request_id: str,
+                               processed_inputs: LLMInputs,
+                               params: Union[SamplingParams, PoolingParams],
+                               arrival_time: float,
+                               lora_request: Optional[LoRARequest],
+                               trace_headers: Optional[Dict[str, str]] = None,
+                               **kwargs) -> None:
         # Create the sequences.
         block_size = self.cache_config.block_size
         seq_id = next(self.seq_counter)
         eos_token_id = self._get_eos_token_id(lora_request)
 
-        seq = Sequence(seq_id, processed_inputs, block_size, eos_token_id,
-                       lora_request)
+        seq_init_handler = kwargs.get("aici_session__request_init_sequence")
+        if seq_init_handler is not None and callable(seq_init_handler):
+            seq = seq_init_handler(request_id=request_id,
+                                   seq_id=seq_id,
+                                   processed_inputs=processed_inputs,
+                                   block_size=block_size,
+                                   eos_token_id=eos_token_id,
+                                   lora_request=lora_request,
+                                   **kwargs)
+        else:
+            seq = Sequence(seq_id, processed_inputs, block_size, eos_token_id,
+                           lora_request)
+            pass
 
         # Create a SequenceGroup based on SamplingParams or PoolingParams
         if isinstance(params, SamplingParams):
@@ -514,7 +525,13 @@ class LLMEngine:
                 "Either SamplingParams or PoolingParams must be provided.")
 
         # Add the sequence group to the scheduler.
-        self.scheduler.add_seq_group(seq_group)
+        seqgrp_init_handler = kwargs.get(
+            'aici_session__register_sequence_group', None)
+        if seqgrp_init_handler is not None and callable(seqgrp_init_handler):
+            seqgrp_init_handler(seq_group, **kwargs)
+        else:
+            self.scheduler.add_seq_group(seq_group)
+        seq_group.kwargs = kwargs
 
     def process_model_inputs(
         self,
@@ -815,6 +832,10 @@ class LLMEngine:
             >>>     if not (engine.has_unfinished_requests() or example_inputs):
             >>>         break
         """
+
+        # TODO: Insert a scheduler hook here. Everytime we schedule, we try to take out some seq_groups
+        #  that we registered in active session.
+
         seq_group_metadata_list, scheduler_outputs = self.scheduler.schedule()
 
         if not scheduler_outputs.is_empty():
