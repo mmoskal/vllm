@@ -9,6 +9,7 @@ from transformers import PreTrainedTokenizer
 import vllm.envs as envs
 from vllm.config import DecodingConfig, ModelConfig
 from vllm.core.scheduler import SchedulerOutputs
+from vllm.core.session import SessionManager
 from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.engine.async_timeout import asyncio_timeout
 from vllm.engine.llm_engine import LLMEngine
@@ -72,6 +73,9 @@ class AsyncStream:
         if self._finished:
             return
         self._queue.put_nowait(item)
+
+    def empty(self) -> bool:
+        return self._queue.empty()
 
     def finish(self) -> None:
         self._queue.put_nowait(StopAsyncIteration())
@@ -187,14 +191,27 @@ class RequestTracker:
             finished_requests.add(request_id)
             self._request_streams.pop(request_id, None)
 
+        # Check if the new requests are ready to be sent to the engine.
+        _new_requests_not_ready = []
         while not self._new_requests.empty():
             stream, new_request = self._new_requests.get_nowait()
+            # Check if the request is ready to run.
+            is_ready_hook = new_request.get("aici_session__is_request_ready",
+                                            None)
+            if is_ready_hook is not None and callable(is_ready_hook):
+                if not is_ready_hook():
+                    _new_requests_not_ready.append((stream, new_request))
+                    continue
+                pass
             if stream.request_id in finished_requests:
                 # The request has already been aborted.
                 stream.finish()
                 continue
             self._request_streams[stream.request_id] = stream
             new_requests.append(new_request)
+
+        for stream, new_request in _new_requests_not_ready:
+            self._new_requests.put_nowait((stream, new_request))
 
         return new_requests, finished_requests
 
@@ -284,15 +301,14 @@ class _AsyncLLMEngine(LLMEngine):
 
         return self.input_processor(llm_inputs)
 
-    async def add_request_async(
-        self,
-        request_id: str,
-        inputs: PromptInputs,
-        params: Union[SamplingParams, PoolingParams],
-        arrival_time: Optional[float] = None,
-        lora_request: Optional[LoRARequest] = None,
-        trace_headers: Optional[Dict[str, str]] = None,
-    ) -> None:
+    async def add_request_async(self,
+                                request_id: str,
+                                inputs: PromptInputs,
+                                params: Union[SamplingParams, PoolingParams],
+                                arrival_time: Optional[float] = None,
+                                lora_request: Optional[LoRARequest] = None,
+                                trace_headers: Optional[Dict[str, str]] = None,
+                                **kwargs) -> None:
         if lora_request is not None and not self.lora_config:
             raise ValueError(f"Got lora_request {lora_request} but LoRA is "
                              "not enabled!")
@@ -302,14 +318,13 @@ class _AsyncLLMEngine(LLMEngine):
         processed_inputs = await self.process_model_inputs_async(
             request_id=request_id, inputs=inputs, lora_request=lora_request)
 
-        self._add_processed_request(
-            request_id=request_id,
-            processed_inputs=processed_inputs,
-            params=params,
-            arrival_time=arrival_time,
-            lora_request=lora_request,
-            trace_headers=trace_headers,
-        )
+        self._add_processed_request(request_id=request_id,
+                                    processed_inputs=processed_inputs,
+                                    params=params,
+                                    arrival_time=arrival_time,
+                                    lora_request=lora_request,
+                                    trace_headers=trace_headers,
+                                    **kwargs)
 
     async def check_health_async(self) -> None:
         if self.tokenizer:
@@ -357,6 +372,7 @@ class AsyncLLMEngine:
         self.log_requests = log_requests
         self.max_log_len = max_log_len
         self.engine = self._init_engine(*args, **kwargs)
+        self.session_manager = SessionManager(self)
 
         self.background_loop: Optional[asyncio.Future] = None
         # We need to keep a reference to unshielded
@@ -573,6 +589,7 @@ class AsyncLLMEngine:
         arrival_time: Optional[float] = None,
         lora_request: Optional[LoRARequest] = None,
         trace_headers: Optional[Dict[str, str]] = None,
+        **kwargs,
     ) -> AsyncStream:
         if self.log_requests:
             if isinstance(inputs, str):
@@ -608,14 +625,13 @@ class AsyncLLMEngine:
         if arrival_time is None:
             arrival_time = time.time()
 
-        stream = self._request_tracker.add_request(
-            request_id,
-            inputs=inputs,
-            params=params,
-            arrival_time=arrival_time,
-            lora_request=lora_request,
-            trace_headers=trace_headers,
-        )
+        stream = self._request_tracker.add_request(request_id,
+                                                   inputs=inputs,
+                                                   params=params,
+                                                   arrival_time=arrival_time,
+                                                   lora_request=lora_request,
+                                                   trace_headers=trace_headers,
+                                                   **kwargs)
 
         return stream
 
