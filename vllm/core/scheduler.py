@@ -290,6 +290,10 @@ class Scheduler:
         # Sequence groups in the SWAPPED state.
         # Contain decode requests that are swapped out.
         self.swapped: Deque[SequenceGroup] = deque()
+        # TODO(Hack): Introduce a proper blocking state?
+        #  How does blocking relates to the current state?
+        #  Sequence group in the pausing state by aici session request.
+        self.blocking: List[Tuple[SequenceGroup, str]] = []
 
         # Time at previous scheduling step
         self.prev_time = 0.0
@@ -942,6 +946,41 @@ class Scheduler:
         )
 
     def schedule(self) -> Tuple[List[SequenceGroupMetadata], SchedulerOutputs]:
+        # Scan self.waiting and self.running,
+        # and see which sequence group needs to be paused.
+        waiting = deque()
+        running = deque()
+        new_pausing = []
+        for seq_group in self.waiting:
+            if seq_group.kwargs.get('aici_session__should_pause'):
+                new_pausing.append((seq_group, "waiting"))
+            else:
+                waiting.append(seq_group)
+            pass
+
+        for seq_group in self.running:
+            if seq_group.kwargs.get('aici_session__should_pause'):
+                new_pausing.append((seq_group, "running"))
+            else:
+                running.append(seq_group)
+            pass
+
+        # Handle the blocking sequences
+        blocking = []
+        for seq_group, original_queue_name in self.blocking:
+            if seq_group.kwargs.get('aici_session__should_pause'):
+                blocking.append((seq_group, original_queue_name))
+                continue
+            if original_queue_name == 'waiting':
+                waiting.append(seq_group)
+            if original_queue_name == 'running':
+                running.append(seq_group)
+            pass
+        blocking.extend(new_pausing)
+        self.waiting = waiting
+        self.running = running
+        self.blocking = blocking
+
         # Schedule sequence groups.
         # This function call changes the internal states of the scheduler
         # such as self.running, self.swapped, and self.waiting.
@@ -1024,6 +1063,11 @@ class Scheduler:
 
     def free_seq(self, seq: Sequence) -> None:
         """Free a sequence from a block table."""
+        session_free_handler = seq.kwargs.get(
+            'aici_session__request_post_finish_hook', None)
+        if session_free_handler is not None and callable(session_free_handler):
+            session_free_handler(seq)
+            return
         self.block_manager.free(seq)
 
     def free_finished_seq_groups(self) -> None:
