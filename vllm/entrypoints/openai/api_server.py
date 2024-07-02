@@ -167,6 +167,19 @@ async def create_embedding(request: EmbeddingRequest, raw_request: Request):
         return JSONResponse(content=generator.model_dump())
 
 
+@app.websocket("/v1/session")
+async def session_handler(websocket: fastapi.WebSocket):
+    # Accepted session will be added into the session.
+    # TODO: Engine can be RayEngine or in other form.
+    #  Make a standard API to handle the session object.
+    # accept websocket connection
+    await websocket.accept()
+    session = engine.engine.session_manager.create_session()
+    session.register_websocket(websocket)
+    await session.start_event_loop()
+    return
+
+
 if __name__ == "__main__":
     args = parse_args()
 
