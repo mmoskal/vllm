@@ -247,6 +247,7 @@ class Sequence:
         block_size: int,
         eos_token_id: Optional[int] = None,
         lora_request: Optional[LoRARequest] = None,
+        **kwargs,
     ) -> None:
         self.seq_id = seq_id
         self.inputs = inputs
@@ -266,6 +267,8 @@ class Sequence:
         self.read_offset = 0
         # Input + output tokens
         self.tokens: Optional[List[str]] = None
+
+        self.kwargs = kwargs
 
     @property
     def n_blocks(self) -> int:
@@ -416,18 +419,17 @@ class SequenceGroup:
         trace_headers: OpenTelemetry trace headers.
     """
 
-    def __init__(
-        self,
-        request_id: str,
-        seqs: List[Sequence],
-        arrival_time: float,
-        sampling_params: Optional[SamplingParams] = None,
-        lora_request: Optional[LoRARequest] = None,
-        embeddings: Optional[List[float]] = None,
-        pooling_params: Optional[PoolingParams] = None,
-        encoder_seq: Optional[Sequence] = None,
-        trace_headers: Optional[Dict[str, str]] = None,
-    ) -> None:
+    def __init__(self,
+                 request_id: str,
+                 seqs: List[Sequence],
+                 arrival_time: float,
+                 sampling_params: Optional[SamplingParams] = None,
+                 lora_request: Optional[LoRARequest] = None,
+                 embeddings: Optional[List[float]] = None,
+                 pooling_params: Optional[PoolingParams] = None,
+                 encoder_seq: Optional[Sequence] = None,
+                 trace_headers: Optional[Dict[str, str]] = None,
+                 **kwargs) -> None:
         self.request_id = request_id
         self.seqs_dict = {seq.seq_id: seq for seq in seqs}
         self.sampling_params = sampling_params
@@ -443,6 +445,7 @@ class SequenceGroup:
         self.pooling_params = pooling_params
         self.encoder_seq = encoder_seq
         self.trace_headers = trace_headers
+        self.kwargs = kwargs
 
     @property
     def prompt(self) -> Optional[str]:
