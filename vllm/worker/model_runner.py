@@ -1311,6 +1311,11 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
             "finished_requests_ids": model_input.finished_requests_ids,
             "request_ids_to_seq_ids": model_input.request_ids_to_seq_ids,
         } if self.has_seqlen_agnostic else {}
+
+        if (ctrl := model_input.sampling_controller) is not None:
+            assert model_input.sampling_metadata is not None
+            ctrl.prepare(model_input.sampling_metadata)
+
         hidden_or_intermediate_states = model_executable(
             input_ids=model_input.input_tokens,
             positions=model_input.input_positions,
@@ -1330,11 +1335,17 @@ class ModelRunner(GPUModelRunnerBase[ModelInputForGPUWithSamplingMetadata]):
         if not self.is_driver_worker:
             return []
 
+        if ctrl is not None:
+            logits = ctrl.transform_logits(logits)
+
         # Sample the next token.
         output: SamplerOutput = self.model.sample(
             logits=logits,
             sampling_metadata=model_input.sampling_metadata,
         )
+
+        if ctrl is not None:
+            output = ctrl.transform_sampler_output(output)
 
         if self.return_hidden_states:
             # we only need to pass hidden states of most recent token

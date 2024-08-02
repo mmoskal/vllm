@@ -245,6 +245,13 @@ class LocalOrDistributedWorkerBase(WorkerBase):
                     model_input.as_broadcastable_tensor_dict())
                 broadcast_data["num_steps"] = num_steps
                 broadcast_tensor_dict(broadcast_data, src=0)
+
+            # SamplingController is only used in the driver worker, so it
+            # doesn't need to be broadcasted.
+            ctrl = execute_model_req.sampling_controller
+            if ctrl is not None:
+                model_input = dataclasses.replace(model_input,
+                                                  sampling_controller=ctrl)
         else:
             assert self.do_metadata_broadcast
             broadcast_data = broadcast_tensor_dict(src=0)

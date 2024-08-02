@@ -7,7 +7,7 @@ import torch
 
 from vllm.platforms import current_platform
 from vllm.sequence import (IntermediateTensors, SamplerOutput,
-                           SequenceGroupMetadata)
+                           SamplingController, SequenceGroupMetadata)
 
 if TYPE_CHECKING:
     from vllm.attention import AttentionMetadata
@@ -92,6 +92,8 @@ class ModelRunnerInputBase(ABC):
     ModelRunnerInputBase subclass, add their required fields, and specify how to
     serialize/deserialize a ModelInput for broadcast between workers.
     """
+
+    sampling_controller: Optional[SamplingController] = None
 
     def as_broadcastable_tensor_dict(self) -> Dict[str, Any]:
         """

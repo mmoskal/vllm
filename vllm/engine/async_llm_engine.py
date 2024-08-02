@@ -249,7 +249,8 @@ class _AsyncLLMEngine(LLMEngine):
                 virtual_engine=virtual_engine,
                 num_lookahead_slots=scheduler_outputs.num_lookahead_slots,
                 running_queue_size=scheduler_outputs.running_queue_size,
-                finished_requests_ids=finished_requests_ids)
+                finished_requests_ids=finished_requests_ids,
+                sampling_controller=self.sampling_controller)
             output = await self.model_executor.execute_model_async(
                 execute_model_req)
         else:
@@ -269,6 +270,8 @@ class _AsyncLLMEngine(LLMEngine):
 
     async def stop_remote_worker_execution_loop_async(self) -> None:
         """Stop the remote worker execution loop."""
+        if ctrl := self.sampling_controller:
+            ctrl.empty_step()
         await self.model_executor.stop_remote_worker_execution_loop_async()
 
     async def process_model_inputs_async(

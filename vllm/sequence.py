@@ -17,6 +17,7 @@ from vllm.sampling_params import SamplingParams
 
 if TYPE_CHECKING:
     from vllm.inputs import LLMInputs
+    from vllm.model_executor.sampling_metadata import SamplingMetadata
     from vllm.multimodal import MultiModalDataDict
     from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
@@ -188,9 +189,14 @@ class SequenceData:
 
     def update_num_computed_tokens(self, num_new_computed_tokens: int):
         """Update number of tokens computed so far."""
+        seq_len = self.get_len()
         self._num_computed_tokens += num_new_computed_tokens
-        assert self._num_computed_tokens <= self.get_len(), (
-            self._num_computed_tokens, self.get_len())
+        # We can overflow by 1 if previous sampling was updated by
+        # SamplingController to generate an empty sequence of tokens.
+        if self._num_computed_tokens == seq_len + 1:
+            self._num_computed_tokens = seq_len
+        assert self._num_computed_tokens <= seq_len, (
+            self._num_computed_tokens, seq_len)
         # If all tokens are computed, it means it is in decoding phase.
         if self.get_num_uncomputed_tokens() == 0:
             self._stage = SequenceStage.DECODE
@@ -494,8 +500,8 @@ class SequenceGroup:
 
     def get_last_latency(self, now: float) -> Optional[float]:
         """Sets the last token time for Request level timings."""
-        # If still in prefill phase, raise Error.
-        if self.is_prefill():
+        # If still in initial prefill phase, raise Error.
+        if self.is_prefill() and self.get_seqs()[0].get_output_len() == 0:
             raise ValueError(
                 "seq_group.get_last_latency() should not be called "
                 "if the seq_group is in prefill phase.")
@@ -740,6 +746,36 @@ class SequenceOutput:
         self.parent_seq_id = parent_seq_id
         self.output_token = output_token
         self.logprobs = logprobs
+        # If present, these tokens should appended to the output
+        # instead of output_token.
+        self.fast_forward_tokens: Optional[List[int]] = None
+
+    def append_to(self, seq: Sequence) -> None:
+        """
+        Append the sampling output to the sequence.
+
+        If fast forward tokens is set, this appends them, generating appropriate
+        Logprobs, and switching the sequence to PREFILL if needed.
+        Otherwise, just the output token is appended.
+        """
+        if self.fast_forward_tokens is not None:
+            logprobs = self.logprobs
+            for token in self.fast_forward_tokens:
+                # On first iteration, use the existing self.logprobs, provided
+                # they contain the token.
+                if token not in logprobs:
+                    logprobs = {
+                        token: Logprob(logprob=0.0, rank=1, decoded_token=None)
+                    }
+                seq.append_token_id(token, logprobs)
+                # On subsequent iterations always use artificially created
+                # logprobs.
+                logprobs = {}
+            # If more than one token was appended, switch to prefill stage.
+            if seq.data.get_num_uncomputed_tokens() > 1:
+                seq.data._stage = SequenceStage.PREFILL
+        else:
+            seq.append_token_id(self.output_token, self.logprobs)
 
     def __repr__(self) -> str:
         return (f"SequenceOutput(parent_seq_id={self.parent_seq_id}, "
@@ -966,6 +1002,53 @@ class HiddenStates:
             self.seq_ids = seq_ids
 
 
+class SamplingController:
+    """
+    This is used to modify sampling process for a given LLMEngine.
+    There is only one instance of this class per LLMEngine.
+
+    In each generation step, one of the following things can happen:
+    
+    There are no sequences to run, and empty_step() is called;
+    this can be used to run actions that normally run in sync with step,
+    when there are no sequences to run
+    
+    Otherwise (normal case), the following methods are run in this exact order:
+    - prepare() causes the sampling controller to start logit bias prepreation
+      for the sequences that will be run; typically the logit indices from
+      sampling_metadata will have to be stored in the sampling controller
+    - forward pass is started
+    - transform_logits() is called after the forward pass has finished, to
+      modify the logits
+    - sampling happens on biased logits
+    - transform_sampler_output() is called to modify the sampler output
+
+    This class does nothing for each of these steps. Subclasses can override
+    any and each of these methods to modify the sampling process; they will
+    be stateful.
+
+    Currently, you just have to assign an instance of your subclass to
+    engine.sampling_controller to use it.
+    """
+
+    def prepare(self, sampling_metadata: "SamplingMetadata"):
+        """Prepare the sampling controller for the next step."""
+        pass
+
+    def empty_step(self):
+        """Called instead of prepare() when the scheduler found no sequences
+        to run."""
+        pass
+
+    def transform_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        """Apply the sampling controller to the logits."""
+        return logits
+
+    def transform_sampler_output(self, output: SamplerOutput) -> SamplerOutput:
+        """Apply the sampling controller to the sampler output."""
+        return output
+
+
 @dataclass
 class ExecuteModelRequest:
     """The model execution request, containing CPU metadata only. The LLM
@@ -990,6 +1073,8 @@ class ExecuteModelRequest:
     num_steps: int = 1
     # Finished request ids since last step.
     finished_requests_ids: List[str] = field(default_factory=list)
+    # Sampling controller to use for this step.
+    sampling_controller: Optional[SamplingController] = None
 
     def clone(
         self, seq_group_metadata_list: List[SequenceGroupMetadata]
@@ -1005,4 +1090,5 @@ class ExecuteModelRequest:
             running_queue_size=self.running_queue_size,
             previous_hidden_states=self.previous_hidden_states,
             num_steps=self.num_steps,
-            finished_requests_ids=self.finished_requests_ids)
+            finished_requests_ids=self.finished_requests_ids,
+            sampling_controller=self.sampling_controller)
