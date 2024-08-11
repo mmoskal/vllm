@@ -1,0 +1,33 @@
+import pyaici.server as aici
+
+def choices(tokens, k):
+    result = []
+    for i in range(k):
+        result.append(tokens[i % len(tokens)])
+    return " ".join(result)
+
+def generate_prompt(prompt_len: int) -> str:
+    tokens = [
+        "San", "Francisco", "is", "a", "You", "are", "a", "I", "am", "a",
+        "The", "quick", "brown", "fox", "jumps",
+        "over", "the", "lazy", "dog", "random",
+        "helpful", "kind", "smart", "funny", "interesting", "boring", "lazy",
+        "active", "tall", "short", "happy",
+        "sad", "angry", "excited", "calm", "friendly",
+    ]
+
+    # randomly chosen tokens
+    prompt = " ".join(choices(tokens, k=prompt_len))
+    return prompt
+
+async def main():
+    N = {{ N }}
+    max_tokens = {{ max_tokens }}
+    prompt = generate_prompt(N)
+    await aici.FixedTokens(prompt)
+
+    for i in range(max_tokens):
+        s = await aici.gen_text(regex=r"\d", max_tokens=1, store_var="x")
+        pass
+
+aici.start(main())

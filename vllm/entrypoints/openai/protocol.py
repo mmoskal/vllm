@@ -523,6 +523,7 @@ class CompletionLogProbs(OpenAIBaseModel):
 class CompletionResponseChoice(OpenAIBaseModel):
     index: int
     text: str
+    token: int
     logprobs: Optional[CompletionLogProbs] = None
     finish_reason: Optional[str] = None
     stop_reason: Optional[Union[int, str]] = Field(
@@ -546,6 +547,7 @@ class CompletionResponse(OpenAIBaseModel):
 class CompletionResponseStreamChoice(OpenAIBaseModel):
     index: int
     text: str
+    token: int
     logprobs: Optional[CompletionLogProbs] = None
     finish_reason: Optional[str] = None
     stop_reason: Optional[Union[int, str]] = Field(

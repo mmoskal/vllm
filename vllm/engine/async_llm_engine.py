@@ -686,6 +686,7 @@ class AsyncLLMEngine:
 
         Returns True if there are in-progress requests."""
 
+        start = time.time()
         new_requests, aborted_requests = (
             self._request_tracker.get_new_and_aborted_requests())
 
@@ -720,6 +721,8 @@ class AsyncLLMEngine:
             self._request_tracker.process_request_output(
                 request_output, verbose=self.log_requests)
             finished = finished and request_output.finished
+        end = time.time()
+        print(f"AsyncEngine.engine_step: {end - start:.4f}s")
 
         return not finished
 
@@ -829,6 +832,40 @@ class AsyncLLMEngine:
             prompt_adapter_request=prompt_adapter_request)
 
         return stream.generator()
+
+    # This method does not need to be async, but kept that way
+    # for backwards compatibility.
+    def add_request_(
+        self,
+        request_id: str,
+        inputs: PromptInputs,
+        params: Union[SamplingParams, PoolingParams],
+        arrival_time: Optional[float] = None,
+        lora_request: Optional[LoRARequest] = None,
+        trace_headers: Optional[Mapping[str, str]] = None,
+        prompt_adapter_request: Optional[PromptAdapterRequest] = None
+    ) -> AsyncStream:
+        if not self.is_running:
+            if self.start_engine_loop:
+                self.start_background_loop()
+            else:
+                raise AsyncEngineDeadError(
+                    "Background loop is not running. If it was running, "
+                    "inspect the output to find the stacktrace of the "
+                    "error that caused the background loop to stop "
+                    "(AsyncEngineDeadError).")
+
+        stream = self._request_tracker.add_request(
+            request_id,
+            verbose=self.log_requests,
+            inputs=inputs,
+            params=params,
+            arrival_time=arrival_time or time.time(),
+            lora_request=lora_request,
+            trace_headers=trace_headers,
+            prompt_adapter_request=prompt_adapter_request)
+
+        return stream
 
     async def generate(
         self,

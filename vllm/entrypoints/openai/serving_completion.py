@@ -374,6 +374,7 @@ class OpenAIServingCompletion(OpenAIServing):
                 choice_data = CompletionResponseChoice(
                     index=len(choices),
                     text=output_text,
+                    token=token_ids,
                     logprobs=logprobs,
                     finish_reason=output.finish_reason,
                     stop_reason=output.stop_reason,

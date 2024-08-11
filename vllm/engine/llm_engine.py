@@ -574,6 +574,7 @@ class LLMEngine:
         seq_id = next(self.seq_counter)
         eos_token_id = self._get_eos_token_id(lora_request)
 
+        # TODO(mike): Hook into the Sequence() creation.
         seq = Sequence(seq_id, processed_inputs, block_size, eos_token_id,
                        lora_request, prompt_adapter_request)
 
