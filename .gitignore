@@ -192,3 +192,4 @@ hip_compat.h
 *.json
 
 scratch/
+.idea/
