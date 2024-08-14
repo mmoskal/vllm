@@ -384,7 +384,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
                 seq_idx] = inter_data.seq_lens[seq_idx] - context_len
 
 
-def _compute_for_sliding_window(self, inter_data: InterDataForSeqGroup,
+    def _compute_for_sliding_window(self, inter_data: InterDataForSeqGroup,
                                     seq_idx: int,
                                     seq_group_metadata: SequenceGroupMetadata):
         """Update seq_len and curr_sliding_window_block for the given
