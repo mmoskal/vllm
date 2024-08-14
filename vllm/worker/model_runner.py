@@ -330,26 +330,9 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
                             and self.sliding_window is None
                             and inter_data.is_prompt)
         inter_data.prefix_cache_hit = prefix_cache_hit
-        # if self.chunked_prefill_enabled and prefix_cache_hit:
-        #     raise RuntimeError(
-        #         "chunked prefill cannot be used with prefix caching now.")
-
-        # If prefix cache is hit, advance context length to bypass
-        # hit blocks. Accordingly, input tokens, position and query length
-        # have to be updated.
-        # if prefix_cache_hit:
-        #     assert computed_block_nums is not None
-        #     context_len = len(computed_block_nums) * self.block_size
-        #     inter_data.input_tokens[seq_idx] = inter_data.input_tokens[
-        #         seq_idx][context_len:]
-        #     inter_data.input_positions[seq_idx] = inter_data.input_positions[
-        #         seq_idx][context_len:]
-        #     inter_data.context_lens[seq_idx] = context_len
-        #     inter_data.query_lens[
-        #         seq_idx] = inter_data.seq_lens[seq_idx] - context_len
 
         if prefix_cache_hit:
-            logger.debug(f"Prefix cache hit: {inter_data}")
+            # logger.debug(f"Prefix cache hit: {inter_data}")
             prefix_cache_len = len(computed_block_nums) * self.block_size
             # When prefix caching meets chunked prefill, we would be in
             # one of the following three cases:
@@ -383,6 +366,8 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
             inter_data.context_lens[seq_idx] = context_len
             inter_data.query_lens[
                 seq_idx] = inter_data.seq_lens[seq_idx] - context_len
+
+        return
 
 
     def _compute_for_sliding_window(self, inter_data: InterDataForSeqGroup,
