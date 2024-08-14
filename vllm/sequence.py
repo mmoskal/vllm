@@ -282,7 +282,8 @@ class Sequence:
 
     @property
     def n_blocks(self) -> int:
-        return math.ceil(self.get_len() / self.block_size)
+        return (self.get_len() + self.block_size - 1) // self.block_size
+        # return math.ceil(self.get_len() / self.block_size)
 
     @property
     def prompt(self) -> Optional[str]:
