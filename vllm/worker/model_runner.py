@@ -349,6 +349,7 @@ class ModelInputForGPUBuilder(ModelRunnerInputBuilderBase[ModelInputForGPU]):
         #         seq_idx] = inter_data.seq_lens[seq_idx] - context_len
 
         if prefix_cache_hit:
+            logger.debug(f"Prefix cache hit: {inter_data}")
             prefix_cache_len = len(computed_block_nums) * self.block_size
             # When prefix caching meets chunked prefill, we would be in
             # one of the following three cases:
