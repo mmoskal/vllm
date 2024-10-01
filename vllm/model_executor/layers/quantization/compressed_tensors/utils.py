@@ -1,9 +1,12 @@
 import re
 from enum import Enum
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from torch.nn import Module
+
+from vllm.model_executor.layers.quantization.utils.quant_utils import (
+    FUSED_LAYER_NAME_MAPPING)
 
 
 class CompressionFormat(Enum):
@@ -37,6 +40,19 @@ class QuantizationStrategy(str, Enum):
     TOKEN = "token"
 
 
+class ActivationOrdering(str, Enum):
+    """
+    Enum storing strategies for activation ordering
+
+    Group: reorder groups and weight\n
+    Weight: only reorder weight, not groups. Slightly lower latency and
+    accuracy compared to group actorder\n
+    """
+
+    GROUP = "group"
+    WEIGHT = "weight"
+
+
 class QuantizationArgs(BaseModel):
     """
     User facing arguments used to define a quantization config 
@@ -55,6 +71,8 @@ class QuantizationArgs(BaseModel):
         observed with every sample. Defaults to False for static
         quantization. Note that enabling dynamic quantization 
         will change the default observer to a memoryless one
+    :param actorder: whether to apply group quantization in decreasing order of
+        activation. Defaults to None for arbitrary ordering
     """
 
     num_bits: int = 8
@@ -64,6 +82,7 @@ class QuantizationArgs(BaseModel):
     strategy: Optional[QuantizationStrategy] = None
     block_structure: Optional[str] = None
     dynamic: bool = False
+    actorder: Union[ActivationOrdering, bool, None] = None
     observer: str = Field(
         default="minmax",
         description=("The class to use to compute the quantization param - "
@@ -76,6 +95,16 @@ class QuantizationArgs(BaseModel):
          "Observers constructor excluding quantization range or symmetry"),
     )
 
+    @field_validator("actorder", mode="before")
+    def validate_actorder(cls, value) -> Optional[ActivationOrdering]:
+        if isinstance(value, bool):
+            return ActivationOrdering.GROUP if value else None
+
+        if isinstance(value, str):
+            return ActivationOrdering(value.lower())
+
+        return value
+
 
 def is_activation_quantization_format(format: str) -> bool:
     _ACTIVATION_QUANTIZATION_FORMATS = [
@@ -84,13 +113,6 @@ def is_activation_quantization_format(format: str) -> bool:
         CompressionFormat.float_quantized.value
     ]
     return format in _ACTIVATION_QUANTIZATION_FORMATS
-
-
-# fused_name: List[shard_name]
-_FUSED_LAYER_NAME_MAPPING = {
-    "qkv_proj": ["q_proj", "k_proj", "v_proj"],
-    "gate_up_proj": ["gate_proj", "up_proj"]
-}
 
 
 def should_ignore_layer(layer_name: Optional[str],
@@ -106,8 +128,8 @@ def should_ignore_layer(layer_name: Optional[str],
     # in the safetensors checkpoint. So, we convert the name
     # from the fused version to unfused + check to make sure that
     # each shard of the fused layer has the same scheme.
-    if proj_name in _FUSED_LAYER_NAME_MAPPING:
-        shard_proj_names = _FUSED_LAYER_NAME_MAPPING[proj_name]
+    if proj_name in FUSED_LAYER_NAME_MAPPING:
+        shard_proj_names = FUSED_LAYER_NAME_MAPPING[proj_name]
 
         # Convert fused_name --> [shard_names]
         shard_names = [
