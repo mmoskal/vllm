@@ -40,9 +40,8 @@ from vllm.pooling_params import PoolingParams
 from vllm.prompt_adapter.request import PromptAdapterRequest
 from vllm.sampling_params import RequestOutputKind, SamplingParams
 from vllm.sequence import (EmbeddingSequenceGroupOutput, ExecuteModelRequest,
-                           SamplingController,
-                           Sequence, SequenceGroup, SequenceGroupMetadata,
-                           SequenceStatus)
+                           SamplingController, Sequence, SequenceGroup,
+                           SequenceGroupMetadata, SequenceStatus)
 from vllm.tracing import (SpanAttributes, SpanKind, extract_trace_context,
                           init_tracer)
 from vllm.transformers_utils.config import try_get_generation_config

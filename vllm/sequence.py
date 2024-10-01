@@ -23,6 +23,7 @@ from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
 
 if TYPE_CHECKING:
     from vllm.multimodal.base import MultiModalDataDict
+    from vllm.model_executor.sampling_metadata import SamplingMetadata
 
 VLLM_TOKEN_ID_ARRAY_TYPE = "l"
 
@@ -1444,6 +1445,6 @@ class ExecuteModelRequest(
             num_steps=self.num_steps,
             finished_requests_ids=self.finished_requests_ids,
             last_sampled_token_ids=self.last_sampled_token_ids.clone()
-            sampling_controller=self.sampling_controller,
             if self.last_sampled_token_ids is not None else None,
+            sampling_controller=self.sampling_controller,
             async_callback=self.async_callback)

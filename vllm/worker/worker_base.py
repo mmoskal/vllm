@@ -273,7 +273,7 @@ class LocalOrDistributedWorkerBase(WorkerBase):
         ctrl = execute_model_req.sampling_controller
         if ctrl is not None:
             model_input = dataclasses.replace(model_input,
-                                                sampling_controller=ctrl)
+                                              sampling_controller=ctrl)
 
         return model_input, worker_input, kwargs
 
