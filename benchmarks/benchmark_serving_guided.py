@@ -951,11 +951,12 @@ if __name__ == "__main__":
                         type=float,
                         default=1.0,
                         help="Ratio of Guided Decoding requests")
-    parser.add_argument("--guided-decoding-backend",
-                        type=str,
-                        choices=["outlines", "lm-format-enforcer", "xgrammar"],
-                        default="xgrammar",
-                        help="Backend to use for guided decoding")
+    parser.add_argument(
+        "--guided-decoding-backend",
+        type=str,
+        choices=["outlines", "lm-format-enforcer", "xgrammar", "guidance"],
+        default="xgrammar",
+        help="Backend to use for guided decoding")
 
     args = parser.parse_args()
     main(args)
