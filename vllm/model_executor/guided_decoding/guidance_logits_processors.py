@@ -108,20 +108,19 @@ class GuidanceLogitsProcessor:
 
     def __call__(
         self,
-        prompt_tokens_ids: List[int],
-        past_tokens_ids: List[int],
-        logits: torch.Tensor,
+        input_ids: List[int],
+        scores: torch.Tensor,
     ) -> torch.Tensor:
         # we initialize the guidance model here
         # to avoid pickling ll_tokenizer and ll_interpreter
         self._initialize()
 
         if self.is_stopped:
-            return logits
+            return scores
 
-        if self.new_sampling and len(past_tokens_ids) > 0:
+        if self.new_sampling and len(input_ids) > 0:
             backtrack, ff_tokens = self.ll_interpreter.commit_token(
-                past_tokens_ids[-1])
+                input_ids[-1])
             if len(ff_tokens) > 0 and backtrack == 0:
                 # first token is last generated token
                 ff_tokens = ff_tokens[1:]
@@ -132,15 +131,15 @@ class GuidanceLogitsProcessor:
             # if we have pending fast-forward tokens,
             # just return them immediately
             ff_token = self.pending_ff_tokens.pop(0)
-            logits.add_(-logits)
-            logits[ff_token] = 200.0
-            return logits
+            scores.add_(-scores)
+            scores[ff_token] = 200.0
+            return scores
 
         mask, resp = self.ll_interpreter.compute_mask()
         r = LLInterpreterResponse.model_validate_json(resp)
 
         if r.stop:
-            mask = np.zeros(logits.shape[-1], dtype=np.uint8)
+            mask = np.zeros(scores.shape[-1], dtype=np.uint8)
             if self.guidance_tokenizer.eos_token_id is not None:
                 mask[self.guidance_tokenizer.eos_token_id] = 200
             self.is_stopped = True
@@ -148,18 +147,18 @@ class GuidanceLogitsProcessor:
             # NOTE: mask should not be None unless r.stop is True
             # However, we are handling this case just in case
             # llguidance allows free-style generation
-            mask = np.zeros(logits.shape[-1], dtype=np.uint8)
+            mask = np.zeros(scores.shape[-1], dtype=np.uint8)
         else:
             mask = np.frombuffer(mask, dtype=np.uint8)
 
         # Force all invalid tokens to have 0 value
-        logits.add_(-torch.min(logits))
+        scores.add_(-torch.min(scores))
         zero_indices = np.where(mask == 0)[0]
-        logits[zero_indices] = 0.0
+        scores[zero_indices] = 0.0
         non_zero_indices = np.nonzero(mask)[0]
-        logits[non_zero_indices] += 200.0
+        scores[non_zero_indices] += 200.0
         # set special tokens not in vocab to 0
-        logits[mask.shape[0]:] = 0.0
+        scores[mask.shape[0]:] = 0.0
         self.new_sampling = True
 
-        return logits
+        return scores
