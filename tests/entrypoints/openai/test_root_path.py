@@ -2,7 +2,7 @@
 
 import contextlib
 import os
-from typing import Any, List, NamedTuple
+from typing import Any, NamedTuple
 
 import openai  # use the official client for correctness check
 import pytest
@@ -30,6 +30,8 @@ def server():
         "/" + ROOT_PATH,
         "--chat-template",
         DUMMY_CHAT_TEMPLATE,
+        "--seed",
+        "0",
     ]
     envs = os.environ.copy()
 
@@ -40,7 +42,7 @@ def server():
 
 class TestCase(NamedTuple):
     model_name: str
-    base_url: List[str]
+    base_url: list[str]
     api_key: str
     expected_error: Any
 
