@@ -16,7 +16,7 @@ from vllm.model_executor.guided_decoding.guidance_utils import LLInterpreterResp
 class GuidanceLogitsProcessor:
     """Base Guidance Logits Processor"""
 
-    metadata: dict[str, Any] = {}
+    ll_tokenizers: dict[str, Any] = {}
 
     def __init__(
         self,
@@ -81,10 +81,11 @@ class GuidanceLogitsProcessor:
                 serialized_grammar = json.dumps(self.guide)
             self.serialized_grammar = serialized_grammar
 
-        ll_tokenizer = getattr(self.tokenizer, "_llguidance_tokenizer", None)
-        if ll_tokenizer is None:
+        if self.tokenizer_name not in self.ll_tokenizers:
             ll_tokenizer = llguidance.hf.from_tokenizer(self.tokenizer, None)
-            self.tokenizer._llguidance_tokenizer = ll_tokenizer
+            self.ll_tokenizers[self.tokenizer_name] = ll_tokenizer
+        else:
+            ll_tokenizer = self.ll_tokenizers[self.tokenizer_name]
         self.ll_tokenizer = ll_tokenizer
         self.ll_interpreter = llguidance.LLInterpreter(
             self.ll_tokenizer,
@@ -141,14 +142,18 @@ class GuidanceLogitsProcessor:
         else:
             mask = np.frombuffer(mask, dtype=np.uint8)
 
-        # Force all invalid tokens to have 0 value
-        scores.add_(-torch.min(scores))
-        zero_indices = np.where(mask == 0)[0]
-        scores[zero_indices] = 0.0
-        non_zero_indices = np.nonzero(mask)[0]
-        scores[non_zero_indices] += 200.0
-        # set special tokens not in vocab to 0
-        scores[mask.shape[0]:] = 0.0
+        mask_torch = torch.tensor(mask, device=scores.device)
+        scores.add_(mask_torch)
         self.new_sampling = True
+
+        # # Force all invalid tokens to have 0 value
+        # scores.add_(-torch.min(scores))
+        # zero_indices = np.where(mask == 0)[0]
+        # scores[zero_indices] = 0.0
+        # non_zero_indices = np.nonzero(mask)[0]
+        # scores[non_zero_indices] += 200.0
+        # # set special tokens not in vocab to 0
+        # scores[mask.shape[0]:] = 0.0
+        # self.new_sampling = True
 
         return scores
