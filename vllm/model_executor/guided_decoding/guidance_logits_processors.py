@@ -10,12 +10,12 @@ import torch
 from pydantic import BaseModel
 from transformers import PreTrainedTokenizerBase
 
-from vllm.model_executor.guided_decoding.guidance_utils import (
-    LLInterpreterResponse, TransformersTokenizer)
+from vllm.model_executor.guided_decoding.guidance_utils import LLInterpreterResponse
 
 
 class GuidanceLogitsProcessor:
     """Base Guidance Logits Processor"""
+
     metadata: dict[str, Any] = {}
 
     def __init__(
@@ -81,13 +81,13 @@ class GuidanceLogitsProcessor:
                 serialized_grammar = json.dumps(self.guide)
             self.serialized_grammar = serialized_grammar
 
-        self.guidance_tokenizer = TransformersTokenizer(
-            model=self.tokenizer.name_or_path,
-            transformers_tokenizer=self.tokenizer)
-
-        ll_tokenizer = llguidance.hf.from_tokenizer(self.tokenizer, None)
+        ll_tokenizer = getattr(self.tokenizer, "_llguidance_tokenizer", None)
+        if ll_tokenizer is None:
+            ll_tokenizer = llguidance.hf.from_tokenizer(self.tokenizer, None)
+            self.tokenizer._llguidance_tokenizer = ll_tokenizer
+        self.ll_tokenizer = ll_tokenizer
         self.ll_interpreter = llguidance.LLInterpreter(
-            ll_tokenizer,
+            self.ll_tokenizer,
             self.serialized_grammar,
             enable_backtrack=False,
             enable_ff_tokens=False,
@@ -130,8 +130,8 @@ class GuidanceLogitsProcessor:
 
         if r.stop:
             mask = np.zeros(scores.shape[-1], dtype=np.uint8)
-            if self.guidance_tokenizer.eos_token_id is not None:
-                mask[self.guidance_tokenizer.eos_token_id] = 200
+            if self.ll_tokenizer.eos_token is not None:
+                mask[self.ll_tokenizer.eos_token] = 200
             self.is_stopped = True
         elif mask is None:
             # NOTE: mask should not be None unless r.stop is True
