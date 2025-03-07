@@ -965,7 +965,7 @@ if __name__ == "__main__":
     parser.add_argument("--structured-output-ratio",
                         type=float,
                         default=1.0,
-                        help="Ratio of Guided Decoding requests")
+                        help="Ratio of Structured Outputs requests")
     parser.add_argument("--structured-output-backend",
                         type=str,
                         choices=["outlines", "lm-format-enforcer", "xgrammar", "guidance"],
