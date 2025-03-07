@@ -4,6 +4,7 @@ import os
 from typing import Any, List, Type, Union
 
 import llguidance  # type: ignore[import-untyped]
+import llguidance.hf
 import numpy as np
 import torch
 from pydantic import BaseModel
@@ -80,24 +81,13 @@ class GuidanceLogitsProcessor:
                 serialized_grammar = json.dumps(self.guide)
             self.serialized_grammar = serialized_grammar
 
-        if f"guidance_tokenizer_{self.tokenizer_name}" not in self.metadata:
-            self.metadata[
-                f"guidance_tokenizer_{self.tokenizer_name}"] = \
-                    TransformersTokenizer( \
-                        model=self.tokenizer.name_or_path,
-                        transformers_tokenizer=self.tokenizer)
-        self.guidance_tokenizer = self.metadata[
-            f"guidance_tokenizer_{self.tokenizer_name}"]
+        self.guidance_tokenizer = TransformersTokenizer(
+            model=self.tokenizer.name_or_path,
+            transformers_tokenizer=self.tokenizer)
 
-        if f"ll_tokenizer_{self.tokenizer_name}" not in self.metadata:
-            self.metadata[
-                f"ll_tokenizer_{self.tokenizer_name}"] = llguidance.LLTokenizer(
-                    llguidance.TokenizerWrapper(self.guidance_tokenizer))
-        self.ll_tokenizer = self.metadata[
-            f"ll_tokenizer_{self.tokenizer_name}"]
-
+        ll_tokenizer = llguidance.hf.from_tokenizer(self.tokenizer, None)
         self.ll_interpreter = llguidance.LLInterpreter(
-            self.ll_tokenizer,
+            ll_tokenizer,
             self.serialized_grammar,
             enable_backtrack=False,
             enable_ff_tokens=False,
